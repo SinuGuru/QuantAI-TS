@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 import io
 import time
+import cv2
 
 # Set page configuration
 st.set_page_config(
@@ -66,24 +67,38 @@ st.markdown("""
 
 # Image processing functions
 def analyze_image(image):
-    """Simulate image analysis and return results"""
-    # Convert to numpy array for "analysis"
+    """Analyze image and return results"""
     img_array = np.array(image)
     
-    # Generate some mock analysis results
+    # Calculate basic image statistics
+    if len(img_array.shape) == 3:  # Color image
+        red = img_array[:, :, 0]
+        green = img_array[:, :, 1]
+        blue = img_array[:, :, 2]
+        color_variance = np.array([red.std(), green.std(), blue.std()]).mean()
+    else:  # Grayscale
+        color_variance = img_array.std()
+    
+    # Generate analysis results
     results = {
         'width': image.width,
         'height': image.height,
         'aspect_ratio': round(image.width / image.height, 2),
         'format': image.format if hasattr(image, 'format') else 'Unknown',
         'mode': image.mode,
-        'estimated_objects': np.random.randint(5, 50),
-        'color_variance': round(np.random.uniform(0.1, 0.9), 3),
-        'sharpness': round(np.random.uniform(0.3, 0.95), 3),
-        'brightness': round(np.random.uniform(0.4, 0.98), 3),
+        'color_variance': round(color_variance, 3),
+        'brightness': round(np.mean(img_array) / 255, 3),
+        'estimated_objects': np.random.randint(5, 50),  # Simulated object detection
+        'sharpness': round(estimate_sharpness(img_array), 3),
     }
     
     return results
+
+def estimate_sharpness(image_array):
+    """Estimate image sharpness using variance of Laplacian"""
+    if len(image_array.shape) == 3:
+        image_array = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+    return cv2.Laplacian(image_array, cv2.CV_64F).var() / 1000
 
 def enhance_image(image, enhancement_type, factor):
     """Apply image enhancements"""
@@ -95,10 +110,70 @@ def enhance_image(image, enhancement_type, factor):
         enhancer = ImageEnhance.Sharpness(image)
     elif enhancement_type == "Color":
         enhancer = ImageEnhance.Color(image)
+    elif enhancement_type == "Blur":
+        return image.filter(ImageFilter.GaussianBlur(radius=factor))
+    elif enhancement_type == "Detail":
+        return image.filter(ImageFilter.DETAIL)
+    elif enhancement_type == "Edge Enhance":
+        return image.filter(ImageFilter.EDGE_ENHANCE)
+    elif enhancement_type == "Emboss":
+        return image.filter(ImageFilter.EMBOSS)
     else:
         return image
     
     return enhancer.enhance(factor)
+
+def apply_filter(image, filter_type):
+    """Apply various filters to image"""
+    if filter_type == "Grayscale":
+        return ImageOps.grayscale(image)
+    elif filter_type == "Sepia":
+        return apply_sepia(image)
+    elif filter_type == "Invert":
+        return ImageOps.invert(image)
+    elif filter_type == "Posterize":
+        return ImageOps.posterize(image, 4)
+    elif filter_type == "Solarize":
+        return ImageOps.solarize(image, threshold=128)
+    else:
+        return image
+
+def apply_sepia(image):
+    """Apply sepia tone filter"""
+    # Convert to numpy array
+    img_array = np.array(image)
+    
+    # Sepia transformation matrix
+    sepia_matrix = np.array([
+        [0.393, 0.769, 0.189],
+        [0.349, 0.686, 0.168],
+        [0.272, 0.534, 0.131]
+    ])
+    
+    # Apply sepia matrix
+    sepia_img = np.dot(img_array, sepia_matrix.T)
+    # Clip values to [0, 255] and convert to uint8
+    sepia_img = np.clip(sepia_img, 0, 255).astype(np.uint8)
+    
+    return Image.fromarray(sepia_img)
+
+def detect_edges(image):
+    """Detect edges in image"""
+    img_array = np.array(image)
+    if len(img_array.shape) == 3:
+        img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    edges = cv2.Canny(img_array, 100, 200)
+    return Image.fromarray(edges)
+
+# Initialize session state
+if 'analysis_results' not in st.session_state:
+    st.session_state.analysis_results = None
+if 'original_image' not in st.session_state:
+    st.session_state.original_image = None
+if 'enhanced_image' not in st.session_state:
+    st.session_state.enhanced_image = None
+if 'filtered_image' not in st.session_state:
+    st.session_state.filtered_image = None
 
 # Sidebar with clear navigation
 with st.sidebar:
@@ -109,7 +184,7 @@ with st.sidebar:
     st.header("Navigation")
     app_mode = st.radio(
         "Select Mode",
-        ["Image Analysis", "Enhancement", "Batch Processing", "Settings"],
+        ["Image Analysis", "Enhancement", "Filters", "Settings"],
         index=0
     )
     
@@ -125,9 +200,17 @@ with st.sidebar:
         st.header("Enhancement Settings")
         enhancement_type = st.selectbox(
             "Enhancement Type",
-            ["Brightness", "Contrast", "Sharpness", "Color"]
+            ["Brightness", "Contrast", "Sharpness", "Color", "Blur", "Detail", "Edge Enhance", "Emboss"]
         )
         enhancement_factor = st.slider("Enhancement Factor", 0.5, 2.0, 1.0, 0.1)
+    
+    elif app_mode == "Filters":
+        st.markdown("---")
+        st.header("Filter Settings")
+        filter_type = st.selectbox(
+            "Filter Type",
+            ["None", "Grayscale", "Sepia", "Invert", "Posterize", "Solarize", "Edge Detection"]
+        )
     
     st.markdown("---")
     st.header("About")
@@ -141,7 +224,7 @@ st.markdown('<p class="main-header">QuantAI Image Analysis</p>', unsafe_allow_ht
 st.markdown('<p class="subheader">Advanced image processing with AI-powered insights</p>', unsafe_allow_html=True)
 
 # Create tabs for different functionalities
-tab1, tab2, tab3 = st.tabs(["📸 Image Upload & Analysis", "🖼️ Enhanced Image", "📈 Data & Export"])
+tab1, tab2, tab3, tab4 = st.tabs(["📸 Image Upload", "📊 Analysis Results", "🖼️ Enhance & Filter", "📈 Export Data"])
 
 with tab1:
     col1, col2 = st.columns([2, 1])
@@ -160,6 +243,9 @@ with tab1:
             image = Image.open(uploaded_file)
             st.image(image, caption="Uploaded Image", use_column_width=True, output_format="auto")
             
+            # Store original image in session state
+            st.session_state.original_image = image
+            
             # Process button
             if st.button("Analyze Image", type="primary", use_container_width=True):
                 with st.spinner("Processing image with AI..."):
@@ -172,62 +258,96 @@ with tab1:
                     # Analyze the image
                     analysis_results = analyze_image(image)
                     st.session_state.analysis_results = analysis_results
-                    st.session_state.original_image = image
                     st.success("Analysis complete!")
-                    
-                    # Display results
-                    st.markdown("### Analysis Results")
-                    
-                    # Create metrics in columns
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                        st.metric("Image Width", f"{analysis_results['width']}px")
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    with col2:
-                        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                        st.metric("Image Height", f"{analysis_results['height']}px")
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    with col3:
-                        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                        st.metric("Aspect Ratio", analysis_results['aspect_ratio'])
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    with col4:
-                        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                        st.metric("Color Mode", analysis_results['mode'])
-                        st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
         st.markdown("### Recent Analyses")
         
         # Display recent analyses if available
-        if 'analysis_results' in st.session_state:
+        if st.session_state.analysis_results is not None:
             st.info(f"Last analysis: {st.session_state.analysis_results['width']}x{st.session_state.analysis_results['height']}")
         else:
             st.info("No recent analyses yet")
         
         st.markdown("### Quick Actions")
         
-        if st.button("Example Analysis 1", use_container_width=True):
-            st.info("This would load a sample analysis")
-        
-        if st.button("Example Analysis 2", use_container_width=True):
-            st.info("This would load another sample analysis")
+        if st.button("Reset All", use_container_width=True):
+            st.session_state.analysis_results = None
+            st.session_state.enhanced_image = None
+            st.session_state.filtered_image = None
+            st.rerun()
 
 with tab2:
-    if uploaded_file is not None and 'original_image' in st.session_state:
-        st.markdown("### Image Enhancement")
+    if st.session_state.analysis_results is not None:
+        st.markdown("### Analysis Results")
+        
+        # Create metrics in columns
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("Image Width", f"{st.session_state.analysis_results['width']}px")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("Image Height", f"{st.session_state.analysis_results['height']}px")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("Aspect Ratio", st.session_state.analysis_results['aspect_ratio'])
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col4:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("Color Mode", st.session_state.analysis_results['mode'])
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # More metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("Brightness", f"{st.session_state.analysis_results['brightness'] * 100:.1f}%")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("Sharpness", f"{st.session_state.analysis_results['sharpness']:.2f}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("Color Variance", f"{st.session_state.analysis_results['color_variance']:.2f}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col4:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("Objects Detected", st.session_state.analysis_results['estimated_objects'])
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Display results as a dataframe
+        st.markdown("### Detailed Analysis Data")
+        results_df = pd.DataFrame.from_dict(
+            st.session_state.analysis_results, 
+            orient='index', 
+            columns=['Value']
+        )
+        st.dataframe(results_df, use_container_width=True)
+    else:
+        st.info("Upload and analyze an image to see results here")
+
+with tab3:
+    if st.session_state.original_image is not None:
+        st.markdown("### Image Enhancement & Filters")
         
         enhancement_col1, enhancement_col2 = st.columns(2)
         
         with enhancement_col1:
             enhancement_type = st.selectbox(
                 "Enhancement Type",
-                ["Brightness", "Contrast", "Sharpness", "Color", "Blur", "Detail"],
+                ["Brightness", "Contrast", "Sharpness", "Color", "Blur", "Detail", "Edge Enhance", "Emboss"],
                 key="enhance_select"
             )
             
@@ -239,22 +359,38 @@ with tab2:
             
             if st.button("Apply Enhancement", type="primary"):
                 with st.spinner("Applying enhancement..."):
-                    if enhancement_type == "Blur":
-                        enhanced_image = st.session_state.original_image.filter(
-                            ImageFilter.GaussianBlur(radius=enhancement_factor)
-                        )
-                    else:
-                        enhanced_image = enhance_image(
-                            st.session_state.original_image, 
-                            enhancement_type, 
-                            enhancement_factor
-                        )
+                    enhanced_image = enhance_image(
+                        st.session_state.original_image, 
+                        enhancement_type, 
+                        enhancement_factor
+                    )
                     
                     st.session_state.enhanced_image = enhanced_image
                     st.success("Enhancement applied!")
+            
+            st.markdown("---")
+            st.markdown("### Filters")
+            
+            filter_type = st.selectbox(
+                "Filter Type",
+                ["None", "Grayscale", "Sepia", "Invert", "Posterize", "Solarize", "Edge Detection"],
+                key="filter_select"
+            )
+            
+            if st.button("Apply Filter", type="secondary"):
+                with st.spinner("Applying filter..."):
+                    if filter_type == "Edge Detection":
+                        filtered_image = detect_edges(st.session_state.original_image)
+                    elif filter_type != "None":
+                        filtered_image = apply_filter(st.session_state.original_image, filter_type)
+                    else:
+                        filtered_image = st.session_state.original_image
+                    
+                    st.session_state.filtered_image = filtered_image
+                    st.success("Filter applied!")
         
         with enhancement_col2:
-            if 'enhanced_image' in st.session_state:
+            if st.session_state.enhanced_image is not None:
                 st.image(
                     st.session_state.enhanced_image, 
                     caption=f"Enhanced: {enhancement_type} {enhancement_factor}x",
@@ -273,25 +409,44 @@ with tab2:
                     mime="image/png",
                     use_container_width=True
                 )
-            else:
-                st.info("Apply an enhancement to see the result here")
+            
+            if st.session_state.filtered_image is not None:
+                st.image(
+                    st.session_state.filtered_image, 
+                    caption=f"Filter: {filter_type}",
+                    use_column_width=True
+                )
+                
+                # Download filtered image
+                buf = io.BytesIO()
+                st.session_state.filtered_image.save(buf, format="PNG")
+                byte_im = buf.getvalue()
+                
+                st.download_button(
+                    label="Download Filtered Image",
+                    data=byte_im,
+                    file_name="filtered_image.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+            
+            if st.session_state.enhanced_image is None and st.session_state.filtered_image is None:
+                st.info("Apply enhancements or filters to see the results here")
     else:
-        st.warning("Upload and analyze an image first to access enhancement features")
+        st.warning("Upload an image first to access enhancement features")
 
-with tab3:
-    st.markdown("### Analysis Data & Export")
+with tab4:
+    st.markdown("### Export Options")
     
-    if 'analysis_results' in st.session_state:
+    if st.session_state.analysis_results is not None:
         # Display analysis results as a dataframe
         results_df = pd.DataFrame.from_dict(
             st.session_state.analysis_results, 
             orient='index', 
             columns=['Value']
         )
-        st.dataframe(results_df, use_container_width=True)
         
         # Export options
-        st.markdown("### Export Options")
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -330,6 +485,54 @@ with tab3:
                 })
                 
                 st.bar_chart(chart_data.set_index('Attribute'))
+        
+        # Image export options
+        st.markdown("---")
+        st.markdown("### Export Processed Images")
+        
+        export_col1, export_col2, export_col3 = st.columns(3)
+        
+        with export_col1:
+            if st.session_state.original_image is not None:
+                buf = io.BytesIO()
+                st.session_state.original_image.save(buf, format="PNG")
+                byte_im = buf.getvalue()
+                
+                st.download_button(
+                    label="Download Original",
+                    data=byte_im,
+                    file_name="original_image.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+        
+        with export_col2:
+            if st.session_state.enhanced_image is not None:
+                buf = io.BytesIO()
+                st.session_state.enhanced_image.save(buf, format="PNG")
+                byte_im = buf.getvalue()
+                
+                st.download_button(
+                    label="Download Enhanced",
+                    data=byte_im,
+                    file_name="enhanced_image.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+        
+        with export_col3:
+            if st.session_state.filtered_image is not None:
+                buf = io.BytesIO()
+                st.session_state.filtered_image.save(buf, format="PNG")
+                byte_im = buf.getvalue()
+                
+                st.download_button(
+                    label="Download Filtered",
+                    data=byte_im,
+                    file_name="filtered_image.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
     else:
         st.info("Analyze an image to see data and export options")
 
