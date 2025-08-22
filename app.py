@@ -1,13 +1,11 @@
 import streamlit as st
-import openai
+from openai import OpenAI
 import os
 from datetime import datetime
 import json
-import requests
 from typing import List, Dict
 import pandas as pd
 import PyPDF2
-import io
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -88,16 +86,18 @@ def init_session_state():
     if "api_key" not in st.session_state:
         st.session_state.api_key = os.getenv('OPENAI_API_KEY', '')
     if "model" not in st.session_state:
-        st.session_state.model = "gpt-4.5-preview"
+        st.session_state.model = "gpt-4-turbo"
     if "conversation_name" not in st.session_state:
         st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     if "usage_stats" not in st.session_state:
         st.session_state.usage_stats = {"tokens": 0, "requests": 0, "cost": 0.0}
+    if "client" not in st.session_state:
+        st.session_state.client = None
 
 # Initialize OpenAI client
 def setup_openai():
     if st.session_state.api_key:
-        openai.api_key = st.session_state.api_key
+        st.session_state.client = OpenAI(api_key=st.session_state.api_key)
         return True
     return False
 
@@ -133,10 +133,8 @@ def estimate_tokens(text: str) -> int:
 def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     """Calculate cost based on OpenAI's 2025 pricing"""
     pricing = {
-        "gpt-4.1": {"input": 0.01, "output": 0.03},
-        "gpt-4.5-preview": {"input": 0.015, "output": 0.045},
-        "gpt-4.5-turbo": {"input": 0.012, "output": 0.036},
-        "gpt-4o-2024": {"input": 0.005, "output": 0.015},
+        "gpt-4-turbo": {"input": 0.01, "output": 0.03},
+        "gpt-4": {"input": 0.03, "output": 0.06},
         "gpt-3.5-turbo": {"input": 0.0015, "output": 0.002}
     }
     
@@ -188,8 +186,8 @@ Be professional, concise, and helpful.
     system_message["content"] += web_context
     
     try:
-        # Create completion with the enhanced context
-        response = openai.ChatCompletion.create(
+        # Create completion with the enhanced context using the new client API
+        response = st.session_state.client.chat.completions.create(
             model=model,
             messages=[system_message] + messages,
             stream=True
@@ -198,7 +196,7 @@ Be professional, concise, and helpful.
         # Collect streaming response
         full_response = ""
         for chunk in response:
-            if chunk.choices[0].delta.get("content"):
+            if chunk.choices[0].delta.content:
                 full_response += chunk.choices[0].delta.content
                 
         # Update usage statistics
@@ -217,11 +215,11 @@ Be professional, concise, and helpful.
 def create_model_comparison():
     """Create a comparison chart of available models"""
     models_data = {
-        "Model": ["GPT-4.5 Preview", "GPT-4.5 Turbo", "GPT-4.1", "GPT-4o", "GPT-3.5 Turbo"],
-        "Context Window": ["128K", "128K", "32K", "128K", "16K"],
-        "Intelligence": [9.5, 9.2, 8.8, 8.5, 7.0],
-        "Speed": [7, 9, 8, 9, 10],
-        "Cost": [9.0, 7.5, 6.0, 5.0, 2.0]  # Relative cost (higher = more expensive)
+        "Model": ["GPT-4 Turbo", "GPT-4", "GPT-3.5 Turbo"],
+        "Context Window": ["128K", "8K", "16K"],
+        "Intelligence": [9.2, 9.0, 7.0],
+        "Speed": [8, 7, 10],
+        "Cost": [7.5, 9.0, 2.0]  # Relative cost (higher = more expensive)
     }
     
     df = pd.DataFrame(models_data)
@@ -252,13 +250,13 @@ def main():
         
         if api_key:
             st.session_state.api_key = api_key
-            openai.api_key = api_key
-            st.success("✓ API Key Configured")
+            if setup_openai():
+                st.success("✓ API Key Configured")
         
         # Model Selection
         st.selectbox(
             "AI Model",
-            ["gpt-4.5-preview", "gpt-4.5-turbo", "gpt-4.1", "gpt-4o-2024", "gpt-3.5-turbo"],
+            ["gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
             index=0,
             key="model",
             help="Select which AI model to use"
@@ -266,214 +264,9 @@ def main():
         
         # Display model info
         model_info = {
-            "gpt-4.5-preview": "Latest flagship model with 128K context and advanced reasoning",
-            "gpt-4.5-turbo": "Optimized version of GPT-4.5 for speed and efficiency",
-            "gpt-4.1": "Enhanced version of GPT-4 with improved efficiency",
-            "gpt-4o-2024": "Multimodal model optimized for cross-modal understanding",
+            "gpt-4-turbo": "Latest model with 128K context and advanced reasoning",
+            "gpt-4": "Powerful model with strong capabilities across domains",
             "gpt-3.5-turbo": "Fast and cost-effective for simpler tasks"
         }
         
-        st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]}")
-        
-        # Features
-        st.markdown("---")
-        st.subheader("Features")
-        use_web_search = st.checkbox("Enable Web Search", value=True, help="Search for latest information when needed")
-        document_upload = st.file_uploader("Upload Document", type=["pdf", "txt"], help="Provide context from documents")
-        
-        # Document context
-        document_context = None
-        if document_upload:
-            with st.spinner("Processing document..."):
-                document_context = process_document(document_upload)
-            st.success(f"✓ Document processed: {document_upload.name}")
-        
-        # Advanced settings
-        st.markdown("---")
-        st.subheader("Advanced Settings")
-        temperature = st.slider("Temperature", 0.0, 1.0, 0.7, help="Controls randomness: Lower = more deterministic")
-        max_tokens = st.slider("Max Response Length", 100, 2000, 500, help="Maximum tokens in response")
-        
-        # Conversation management
-        st.markdown("---")
-        st.subheader("Conversation")
-        st.session_state.conversation_name = st.text_input("Conversation Name", value=st.session_state.conversation_name)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("New Conversation"):
-                st.session_state.messages = [
-                    {"role": "assistant", "content": "Hello! I'm your NeuraLink Professional Assistant for 2025. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")}
-                ]
-                st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                st.rerun()
-        with col2:
-            if st.button("Clear History"):
-                st.session_state.messages = st.session_state.messages[:1]  # Keep only the first message
-                st.rerun()
-        
-        # Export conversation
-        if st.button("Export Conversation"):
-            conversation_data = []
-            for msg in st.session_state.messages:
-                conversation_data.append({
-                    "role": msg["role"],
-                    "content": msg["content"],
-                    "timestamp": msg.get("timestamp", "")
-                })
-            
-            # Create downloadable JSON
-            json_str = json.dumps(conversation_data, indent=2)
-            st.download_button(
-                label="Download Conversation",
-                data=json_str,
-                file_name=f"conversation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
-            )
-        
-        # Usage statistics
-        st.markdown("---")
-        st.subheader("Usage Statistics")
-        st.metric("Total Tokens", f"{st.session_state.usage_stats['tokens']:,.0f}")
-        st.metric("API Requests", st.session_state.usage_stats["requests"])
-        st.metric("Estimated Cost", f"${st.session_state.usage_stats['cost']:.2f}")
-        
-        st.markdown("---")
-        st.markdown("### About")
-        st.markdown("""
-        NeuraLink Assistant 2025 leverages the latest GPT models to provide professional assistance with up-to-date information.
-        
-        **Key Features:**
-        - GPT-4.5 and GPT-4.1 support
-        - 2025 knowledge context
-        - Web search integration
-        - Document processing
-        - Conversation management
-        """)
-    
-    # Check for API key
-    if not st.session_state.api_key:
-        st.warning("⚠️ Please enter your OpenAI API key in the sidebar to begin")
-        st.info("ℹ️ You can obtain an API key from [OpenAI's platform](https://platform.openai.com/api-keys)")
-        
-        # Model comparison
-        st.markdown("---")
-        st.subheader("GPT Model Comparison (2025)")
-        model_df = create_model_comparison()
-        st.dataframe(model_df, use_container_width=True, hide_index=True)
-        
-        # Create radar chart for model comparison
-        fig = go.Figure()
-        
-        models = model_df["Model"].tolist()
-        for i, model in enumerate(models):
-            fig.add_trace(go.Scatterpolar(
-                r=[model_df["Intelligence"][i], model_df["Speed"][i], 10 - model_df["Cost"][i]/2],
-                theta=['Intelligence', 'Speed', 'Affordability'],
-                fill='toself',
-                name=model
-            ))
-        
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, 10]
-                )),
-            showlegend=True,
-            title="Model Comparison (Higher is better)"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        return
-    
-    # Main chat interface
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.markdown(f'<div class="subheader">Conversation: {st.session_state.conversation_name} <span class="model-badge">{st.session_state.model}</span></div>', unsafe_allow_html=True)
-        
-        # Display chat messages
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-                if "timestamp" in message:
-                    st.markdown(f'<div class="timestamp">{message["timestamp"]}</div>', unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown('<div class="subheader">Quick Actions</div>', unsafe_allow_html=True)
-        
-        # Quick action buttons
-        if st.button("📊 Market Analysis Summary"):
-            st.session_state.messages.append({"role": "user", "content": "Provide a brief market analysis summary for Q2 2025 focusing on tech sector trends.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
-            st.rerun()
-        
-        if st.button("📈 Data Insights"):
-            st.session_state.messages.append({"role": "user", "content": "What are the key data and AI insights for business decision making in 2025?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
-            st.rerun()
-        
-        if st.button("🔍 Research Assistance"):
-            st.session_state.messages.append({"role": "user", "content": "Help me research the latest developments in renewable energy technology for 2025.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
-            st.rerun()
-        
-        if st.button("📝 Document Analysis"):
-            st.session_state.messages.append({"role": "user", "content": "Analyze the provided document and summarize key points.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
-            st.rerun()
-        
-        st.markdown("---")
-        st.markdown("**Model Capabilities**")
-        
-        # Feature cards
-        st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-        st.markdown("**🧠 Advanced Reasoning**")
-        st.caption("GPT-4.5 features enhanced logical reasoning and problem-solving capabilities")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-        st.markdown("**📊 Data Analysis**")
-        st.caption("Built-in data interpretation and visualization capabilities")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-        st.markdown("**🌐 Web Context**")
-        st.caption("Access to the latest 2025 information through integrated web search")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-        st.markdown("**📄 Document Processing**")
-        st.caption("Analyze and extract insights from uploaded PDF and text documents")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Chat input
-    if prompt := st.chat_input("Type your message here..."):
-        # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": prompt, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
-        
-        # Display user message
-        with st.chat_message("user"):
-            st.markdown(prompt)
-            st.markdown(f'<div class="timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
-        
-        # Display assistant response
-        with st.chat_message("assistant"):
-            message_placeholder = st.empty()
-            full_response = ""
-            
-            # Generate response
-            with st.spinner(f"Analyzing with {st.session_state.model}..."):
-                full_response = generate_response(
-                    [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
-                    st.session_state.model,
-                    use_web_search,
-                    document_context
-                )
-            
-            # Display response
-            message_placeholder.markdown(full_response)
-            st.markdown(f'<div class="timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
-        
-        # Add assistant response to chat history
-        st.session_state.messages.append({"role": "assistant", "content": full_response, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
-
-if __name__ == "__main__":
-    main()
+        st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]
