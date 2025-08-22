@@ -1085,7 +1085,7 @@ def main():
             st.markdown("---")
             st.markdown("**🎯 Model Capabilities**")
             
-            # Feature cards with improved styling
+            # Feature cards with improved styling - FIXED SYNTAX ERROR
             st.markdown("""
             <div class="feature-card">
                 <h4>🧠 Advanced Reasoning</h4>
@@ -1098,7 +1098,7 @@ def main():
                 <h4>📊 Data Analysis</h4>
                 <p>Built-in data interpretation and visualization capabilities</p>
             </div>
-            ""', unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
             
             st.markdown("""
             <div class="feature-card">
