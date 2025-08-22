@@ -269,4 +269,208 @@ def main():
             "gpt-3.5-turbo": "Fast and cost-effective for simpler tasks"
         }
         
-        st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]
+        # FIXED: This was the line with the syntax error - properly closed f-string and bracket
+        st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]}")
+        
+        # Features
+        st.markdown("---")
+        st.subheader("Features")
+        use_web_search = st.checkbox("Enable Web Search", value=True, help="Search for latest information when needed")
+        document_upload = st.file_uploader("Upload Document", type=["pdf", "txt"], help="Provide context from documents")
+        
+        # Document context
+        document_context = None
+        if document_upload:
+            with st.spinner("Processing document..."):
+                document_context = process_document(document_upload)
+            st.success(f"✓ Document processed: {document_upload.name}")
+        
+        # Advanced settings
+        st.markdown("---")
+        st.subheader("Advanced Settings")
+        temperature = st.slider("Temperature", 0.0, 1.0, 0.7, help="Controls randomness: Lower = more deterministic")
+        max_tokens = st.slider("Max Response Length", 100, 2000, 500, help="Maximum tokens in response")
+        
+        # Conversation management
+        st.markdown("---")
+        st.subheader("Conversation")
+        st.session_state.conversation_name = st.text_input("Conversation Name", value=st.session_state.conversation_name)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("New Conversation"):
+                st.session_state.messages = [
+                    {"role": "assistant", "content": "Hello! I'm your NeuraLink Professional Assistant for 2025. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")}
+                ]
+                st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                st.rerun()
+        with col2:
+            if st.button("Clear History"):
+                st.session_state.messages = st.session_state.messages[:1]  # Keep only the first message
+                st.rerun()
+        
+        # Export conversation
+        if st.button("Export Conversation"):
+            conversation_data = []
+            for msg in st.session_state.messages:
+                conversation_data.append({
+                    "role": msg["role"],
+                    "content": msg["content"],
+                    "timestamp": msg.get("timestamp", "")
+                })
+            
+            # Create downloadable JSON
+            json_str = json.dumps(conversation_data, indent=2)
+            st.download_button(
+                label="Download Conversation",
+                data=json_str,
+                file_name=f"conversation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json"
+            )
+        
+        # Usage statistics
+        st.markdown("---")
+        st.subheader("Usage Statistics")
+        st.metric("Total Tokens", f"{st.session_state.usage_stats['tokens']:,.0f}")
+        st.metric("API Requests", st.session_state.usage_stats["requests"])
+        st.metric("Estimated Cost", f"${st.session_state.usage_stats['cost']:.2f}")
+        
+        st.markdown("---")
+        st.markdown("### About")
+        st.markdown("""
+        NeuraLink Assistant 2025 leverages the latest GPT models to provide professional assistance with up-to-date information.
+        
+        **Key Features:**
+        - GPT-4 Turbo and GPT-4 support
+        - 2025 knowledge context
+        - Web search integration
+        - Document processing
+        - Conversation management
+        """)
+    
+    # Check for API key and client
+    if not st.session_state.api_key or not st.session_state.client:
+        st.warning("⚠️ Please enter your OpenAI API key in the sidebar to begin")
+        st.info("ℹ️ You can obtain an API key from [OpenAI's platform](https://platform.openai.com/api-keys)")
+        
+        # Model comparison
+        st.markdown("---")
+        st.subheader("GPT Model Comparison (2025)")
+        model_df = create_model_comparison()
+        st.dataframe(model_df, use_container_width=True, hide_index=True)
+        
+        # Create radar chart for model comparison
+        fig = go.Figure()
+        
+        models = model_df["Model"].tolist()
+        for i, model in enumerate(models):
+            fig.add_trace(go.Scatterpolar(
+                r=[model_df["Intelligence"][i], model_df["Speed"][i], 10 - model_df["Cost"][i]/2],
+                theta=['Intelligence', 'Speed', 'Affordability'],
+                fill='toself',
+                name=model
+            ))
+        
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 10]
+                )),
+            showlegend=True,
+            title="Model Comparison (Higher is better)"
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        return
+    
+    # Main chat interface
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown(f'<div class="subheader">Conversation: {st.session_state.conversation_name} <span class="model-badge">{st.session_state.model}</span></div>', unsafe_allow_html=True)
+        
+        # Display chat messages
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+                if "timestamp" in message:
+                    st.markdown(f'<div class="timestamp">{message["timestamp"]}</div>', unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown('<div class="subheader">Quick Actions</div>', unsafe_allow_html=True)
+        
+        # Quick action buttons
+        if st.button("📊 Market Analysis Summary"):
+            st.session_state.messages.append({"role": "user", "content": "Provide a brief market analysis summary for Q2 2025 focusing on tech sector trends.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+            st.rerun()
+        
+        if st.button("📈 Data Insights"):
+            st.session_state.messages.append({"role": "user", "content": "What are the key data and AI insights for business decision making in 2025?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+            st.rerun()
+        
+        if st.button("🔍 Research Assistance"):
+            st.session_state.messages.append({"role": "user", "content": "Help me research the latest developments in renewable energy technology for 2025.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+            st.rerun()
+        
+        if st.button("📝 Document Analysis"):
+            st.session_state.messages.append({"role": "user", "content": "Analyze the provided document and summarize key points.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+            st.rerun()
+        
+        st.markdown("---")
+        st.markdown("**Model Capabilities**")
+        
+        # Feature cards
+        st.markdown('<div class="feature-card">', unsafe_allow_html=True)
+        st.markdown("**🧠 Advanced Reasoning**")
+        st.caption("GPT models feature enhanced logical reasoning and problem-solving capabilities")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('<div class="feature-card">', unsafe_allow_html=True)
+        st.markdown("**📊 Data Analysis**")
+        st.caption("Built-in data interpretation and visualization capabilities")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('<div class="feature-card">', unsafe_allow_html=True)
+        st.markdown("**🌐 Web Context**")
+        st.caption("Access to the latest 2025 information through integrated web search")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('<div class="feature-card">', unsafe_allow_html=True)
+        st.markdown("**📄 Document Processing**")
+        st.caption("Analyze and extract insights from uploaded PDF and text documents")
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Chat input
+    if prompt := st.chat_input("Type your message here..."):
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+        
+        # Display user message
+        with st.chat_message("user"):
+            st.markdown(prompt)
+            st.markdown(f'<div class="timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
+        
+        # Display assistant response
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
+            full_response = ""
+            
+            # Generate response
+            with st.spinner(f"Analyzing with {st.session_state.model}..."):
+                full_response = generate_response(
+                    [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
+                    st.session_state.model,
+                    use_web_search,
+                    document_context
+                )
+            
+            # Display response
+            message_placeholder.markdown(full_response)
+            st.markdown(f'<div class="timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
+        
+        # Add assistant response to chat history
+        st.session_state.messages.append({"role": "assistant", "content": full_response, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+
+if __name__ == "__main__":
+    main()
