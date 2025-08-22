@@ -8,6 +8,9 @@ import pandas as pd
 import PyPDF2
 import plotly.express as px
 import plotly.graph_objects as go
+import base64
+from PIL import Image
+import io
 
 # Set page configuration with professional theme
 st.set_page_config(
@@ -74,6 +77,12 @@ st.markdown("""
         margin-bottom: 15px;
         border-left: 4px solid #2c5aa0;
     }
+    .usage-card {
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        padding: 10px;
+        margin: 5px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -93,18 +102,27 @@ def init_session_state():
         st.session_state.usage_stats = {"tokens": 0, "requests": 0, "cost": 0.0}
     if "client" not in st.session_state:
         st.session_state.client = None
+    if "temperature" not in st.session_state:
+        st.session_state.temperature = 0.7
+    if "max_tokens" not in st.session_state:
+        st.session_state.max_tokens = 500
 
 # Initialize OpenAI client
 def setup_openai():
     if st.session_state.api_key:
-        st.session_state.client = OpenAI(api_key=st.session_state.api_key)
-        return True
+        try:
+            st.session_state.client = OpenAI(api_key=st.session_state.api_key)
+            # Test the client with a simple request
+            st.session_state.client.models.list()
+            return True
+        except Exception as e:
+            st.error(f"Failed to initialize OpenAI client: {str(e)}")
+            return False
     return False
 
 # Function to perform web search (simulated for 2025)
 def web_search(query: str):
     """Simulate web search with latest 2025 data"""
-    # In a real implementation, this would use Serper, SerpAPI or similar
     search_results = [
         {"title": "AI Trends 2025: GPT-4.5 Revolutionizes Enterprise Applications", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-4.5's enhanced reasoning and 128K context window are transforming business applications in 2025."},
         {"title": "OpenAI Releases GPT-4.1 and GPT-4.5: What's New", "url": "https://example.com/gpt45-update", "snippet": "GPT-4.5 features improved mathematical reasoning, better coding capabilities, and enhanced safety alignment."},
@@ -116,18 +134,30 @@ def web_search(query: str):
 def process_document(uploaded_file):
     """Extract text from uploaded documents"""
     text = ""
-    if uploaded_file.type == "application/pdf":
-        pdf_reader = PyPDF2.PdfReader(uploaded_file)
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
-    elif uploaded_file.type == "text/plain":
-        text = str(uploaded_file.read(), "utf-8")
-    return text
+    try:
+        if uploaded_file.type == "application/pdf":
+            pdf_reader = PyPDF2.PdfReader(uploaded_file)
+            for page in pdf_reader.pages:
+                text += page.extract_text() + "\n"
+        elif uploaded_file.type == "text/plain":
+            text = str(uploaded_file.read(), "utf-8")
+        elif uploaded_file.type.startswith("image/"):
+            # For images, we'll use a placeholder since we can't extract text
+            text = f"[Image file: {uploaded_file.name}]"
+        return text
+    except Exception as e:
+        return f"Error processing document: {str(e)}"
 
-# Function to estimate token count
-def estimate_tokens(text: str) -> int:
-    """Estimate token count for a string (approx)"""
-    return len(text.split()) * 1.33
+# Function to estimate token count using tiktoken
+def estimate_tokens(text: str, model: str = "gpt-4") -> int:
+    """Estimate token count for a string"""
+    try:
+        import tiktoken
+        encoding = tiktoken.encoding_for_model(model)
+        return len(encoding.encode(text))
+    except ImportError:
+        # Fallback estimation if tiktoken is not available
+        return len(text.split()) * 1.33
 
 # Function to calculate cost based on model and tokens
 def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
@@ -135,25 +165,33 @@ def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
     pricing = {
         "gpt-4-turbo": {"input": 0.01, "output": 0.03},
         "gpt-4": {"input": 0.03, "output": 0.06},
-        "gpt-3.5-turbo": {"input": 0.0015, "output": 0.002}
+        "gpt-3.5-turbo": {"input": 0.0015, "output": 0.002},
+        "gpt-4o": {"input": 0.005, "output": 0.015},
     }
     
-    if model not in pricing:
+    # Normalize model name
+    model_key = model
+    if "gpt-4-turbo" in model:
+        model_key = "gpt-4-turbo"
+    elif "gpt-4" in model and "gpt-4-turbo" not in model:
+        model_key = "gpt-4"
+    elif "gpt-3.5" in model:
+        model_key = "gpt-3.5-turbo"
+    
+    if model_key not in pricing:
         return 0.0
     
-    cost = (prompt_tokens / 1000 * pricing[model]["input"] + 
-            completion_tokens / 1000 * pricing[model]["output"])
+    cost = (prompt_tokens / 1000 * pricing[model_key]["input"] + 
+            completion_tokens / 1000 * pricing[model_key]["output"])
     return cost
 
 # Function to generate AI response with latest context
-def generate_response(messages: List[Dict], model: str, use_web_search: bool = False, document_context: str = None) -> str:
+async def generate_response(messages: List[Dict], model: str, use_web_search: bool = False, document_context: str = None) -> str:
     """Generate response from OpenAI API with enhanced 2025 context"""
     
     # Prepare system message with 2025 context
     current_date = datetime.now().strftime("%Y-%m-%d")
-    system_message = {
-        "role": "system", 
-        "content": f"""You are NeuraLink Assistant 2025, a professional AI assistant with knowledge up to December 2025.
+    system_content = f"""You are NeuraLink Assistant 2025, a professional AI assistant with knowledge up to December 2025.
 
 Current date: {current_date}
 
@@ -167,14 +205,12 @@ Key 2025 Context:
 Always provide accurate, up-to-date information. If you're unsure, say so. 
 Be professional, concise, and helpful.
 """
-    }
     
     # Add document context if provided
     if document_context:
-        system_message["content"] += f"\n\nDocument Context:\n{document_context}\n\nPlease reference this document when relevant to the user's query."
+        system_content += f"\n\nDocument Context:\n{document_context}\n\nPlease reference this document when relevant to the user's query."
     
     # Add web search results if enabled
-    web_context = ""
     if use_web_search and messages and messages[-1]["role"] == "user":
         search_query = messages[-1]["content"]
         search_results = web_search(search_query)
@@ -182,26 +218,34 @@ Be professional, concise, and helpful.
             web_context = "\n\nCurrent Web Context:\n"
             for i, result in enumerate(search_results, 1):
                 web_context += f"{i}. {result['title']}: {result['snippet']}\n"
+            system_content += web_context
     
-    system_message["content"] += web_context
+    # Prepare messages for API call
+    api_messages = [{"role": "system", "content": system_content}]
+    
+    # Add conversation history (limit to last 10 messages to avoid token limits)
+    for msg in messages[-10:]:
+        api_messages.append({"role": msg["role"], "content": msg["content"]})
     
     try:
         # Create completion with the enhanced context using the new client API
         response = st.session_state.client.chat.completions.create(
             model=model,
-            messages=[system_message] + messages,
-            stream=True
+            messages=api_messages,
+            stream=True,
+            temperature=st.session_state.temperature,
+            max_tokens=st.session_state.max_tokens
         )
         
         # Collect streaming response
         full_response = ""
         for chunk in response:
-            if chunk.choices[0].delta.content:
+            if chunk.choices[0].delta.content is not None:
                 full_response += chunk.choices[0].delta.content
                 
         # Update usage statistics
-        prompt_tokens = estimate_tokens(system_message["content"] + " ".join([m["content"] for m in messages]))
-        completion_tokens = estimate_tokens(full_response)
+        prompt_tokens = estimate_tokens(system_content + " ".join([m["content"] for m in messages]), model)
+        completion_tokens = estimate_tokens(full_response, model)
         
         st.session_state.usage_stats["tokens"] += prompt_tokens + completion_tokens
         st.session_state.usage_stats["requests"] += 1
@@ -215,15 +259,26 @@ Be professional, concise, and helpful.
 def create_model_comparison():
     """Create a comparison chart of available models"""
     models_data = {
-        "Model": ["GPT-4 Turbo", "GPT-4", "GPT-3.5 Turbo"],
-        "Context Window": ["128K", "8K", "16K"],
-        "Intelligence": [9.2, 9.0, 7.0],
-        "Speed": [8, 7, 10],
-        "Cost": [7.5, 9.0, 2.0]  # Relative cost (higher = more expensive)
+        "Model": ["GPT-4 Turbo", "GPT-4", "GPT-3.5 Turbo", "GPT-4o"],
+        "Context Window": ["128K", "8K", "16K", "128K"],
+        "Intelligence": [9.5, 9.0, 7.0, 9.2],
+        "Speed": [8, 7, 10, 9],
+        "Cost per 1K tokens": ["$10/30", "$30/60", "$1.5/2", "$5/15"]
     }
     
     df = pd.DataFrame(models_data)
     return df
+
+# Function to display usage statistics
+def display_usage_stats():
+    """Display usage statistics in a nice format"""
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Tokens", f"{st.session_state.usage_stats['tokens']:,.0f}")
+    with col2:
+        st.metric("API Requests", st.session_state.usage_stats["requests"])
+    with col3:
+        st.metric("Estimated Cost", f"${st.session_state.usage_stats['cost']:.2f}")
 
 # Main application
 def main():
@@ -232,23 +287,22 @@ def main():
     
     # Header
     st.markdown('<h1 class="main-header">NeuraLink Assistant 2025</h1>', unsafe_allow_html=True)
-    st.caption("Professional AI Assistant with Latest GPT Models • v3.0.0")
+    st.caption("Professional AI Assistant with Latest GPT Models • v4.0.0")
     
     # Sidebar
     with st.sidebar:
-        st.image("https://placehold.co/300x80/1f3d7a/white?text=NeuraLink+2025", use_container_width=True)
-        st.markdown("---")
+        st.markdown("### 🔧 Configuration")
         
         # API Key Input
-        st.subheader("Configuration")
         api_key = st.text_input(
             "OpenAI API Key",
             value=st.session_state.api_key,
             type="password",
-            help="Enter your OpenAI API key to begin"
+            help="Enter your OpenAI API key to begin",
+            label_visibility="collapsed"
         )
         
-        if api_key:
+        if api_key and api_key != st.session_state.api_key:
             st.session_state.api_key = api_key
             if setup_openai():
                 st.success("✓ API Key Configured")
@@ -256,7 +310,7 @@ def main():
         # Model Selection
         st.selectbox(
             "AI Model",
-            ["gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+            ["gpt-4-turbo", "gpt-4", "gpt-3.5-turbo", "gpt-4o"],
             index=0,
             key="model",
             help="Select which AI model to use"
@@ -266,17 +320,23 @@ def main():
         model_info = {
             "gpt-4-turbo": "Latest model with 128K context and advanced reasoning",
             "gpt-4": "Powerful model with strong capabilities across domains",
-            "gpt-3.5-turbo": "Fast and cost-effective for simpler tasks"
+            "gpt-3.5-turbo": "Fast and cost-effective for simpler tasks",
+            "gpt-4o": "Optimized model with balanced speed and intelligence"
         }
         
-        # FIXED: This was the line with the syntax error - properly closed f-string and bracket
         st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]}")
+        
+        # Advanced settings
+        st.markdown("---")
+        st.markdown("### ⚙️ Advanced Settings")
+        st.session_state.temperature = st.slider("Temperature", 0.0, 1.0, 0.7, help="Controls randomness: Lower = more deterministic")
+        st.session_state.max_tokens = st.slider("Max Response Length", 100, 2000, 500, help="Maximum tokens in response")
         
         # Features
         st.markdown("---")
-        st.subheader("Features")
+        st.markdown("### 🌟 Features")
         use_web_search = st.checkbox("Enable Web Search", value=True, help="Search for latest information when needed")
-        document_upload = st.file_uploader("Upload Document", type=["pdf", "txt"], help="Provide context from documents")
+        document_upload = st.file_uploader("Upload Document", type=["pdf", "txt", "png", "jpg", "jpeg"], help="Provide context from documents")
         
         # Document context
         document_context = None
@@ -285,32 +345,26 @@ def main():
                 document_context = process_document(document_upload)
             st.success(f"✓ Document processed: {document_upload.name}")
         
-        # Advanced settings
-        st.markdown("---")
-        st.subheader("Advanced Settings")
-        temperature = st.slider("Temperature", 0.0, 1.0, 0.7, help="Controls randomness: Lower = more deterministic")
-        max_tokens = st.slider("Max Response Length", 100, 2000, 500, help="Maximum tokens in response")
-        
         # Conversation management
         st.markdown("---")
-        st.subheader("Conversation")
+        st.markdown("### 💬 Conversation")
         st.session_state.conversation_name = st.text_input("Conversation Name", value=st.session_state.conversation_name)
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("New Conversation"):
+            if st.button("🆕 New Conversation"):
                 st.session_state.messages = [
                     {"role": "assistant", "content": "Hello! I'm your NeuraLink Professional Assistant for 2025. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")}
                 ]
                 st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
                 st.rerun()
         with col2:
-            if st.button("Clear History"):
+            if st.button("🗑️ Clear History"):
                 st.session_state.messages = st.session_state.messages[:1]  # Keep only the first message
                 st.rerun()
         
         # Export conversation
-        if st.button("Export Conversation"):
+        if st.button("📤 Export Conversation"):
             conversation_data = []
             for msg in st.session_state.messages:
                 conversation_data.append({
@@ -330,18 +384,16 @@ def main():
         
         # Usage statistics
         st.markdown("---")
-        st.subheader("Usage Statistics")
-        st.metric("Total Tokens", f"{st.session_state.usage_stats['tokens']:,.0f}")
-        st.metric("API Requests", st.session_state.usage_stats["requests"])
-        st.metric("Estimated Cost", f"${st.session_state.usage_stats['cost']:.2f}")
+        st.markdown("### 📊 Usage Statistics")
+        display_usage_stats()
         
         st.markdown("---")
-        st.markdown("### About")
+        st.markdown("### ℹ️ About")
         st.markdown("""
         NeuraLink Assistant 2025 leverages the latest GPT models to provide professional assistance with up-to-date information.
         
         **Key Features:**
-        - GPT-4 Turbo and GPT-4 support
+        - GPT-4 Turbo, GPT-4, and GPT-3.5 Turbo support
         - 2025 knowledge context
         - Web search integration
         - Document processing
@@ -359,29 +411,6 @@ def main():
         model_df = create_model_comparison()
         st.dataframe(model_df, use_container_width=True, hide_index=True)
         
-        # Create radar chart for model comparison
-        fig = go.Figure()
-        
-        models = model_df["Model"].tolist()
-        for i, model in enumerate(models):
-            fig.add_trace(go.Scatterpolar(
-                r=[model_df["Intelligence"][i], model_df["Speed"][i], 10 - model_df["Cost"][i]/2],
-                theta=['Intelligence', 'Speed', 'Affordability'],
-                fill='toself',
-                name=model
-            ))
-        
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, 10]
-                )),
-            showlegend=True,
-            title="Model Comparison (Higher is better)"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
         return
     
     # Main chat interface
@@ -398,27 +427,27 @@ def main():
                     st.markdown(f'<div class="timestamp">{message["timestamp"]}</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<div class="subheader">Quick Actions</div>', unsafe_allow_html=True)
+        st.markdown('<div class="subheader">🚀 Quick Actions</div>', unsafe_allow_html=True)
         
         # Quick action buttons
-        if st.button("📊 Market Analysis Summary"):
+        if st.button("📊 Market Analysis Summary", use_container_width=True):
             st.session_state.messages.append({"role": "user", "content": "Provide a brief market analysis summary for Q2 2025 focusing on tech sector trends.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
             st.rerun()
         
-        if st.button("📈 Data Insights"):
+        if st.button("📈 Data Insights", use_container_width=True):
             st.session_state.messages.append({"role": "user", "content": "What are the key data and AI insights for business decision making in 2025?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
             st.rerun()
         
-        if st.button("🔍 Research Assistance"):
+        if st.button("🔍 Research Assistance", use_container_width=True):
             st.session_state.messages.append({"role": "user", "content": "Help me research the latest developments in renewable energy technology for 2025.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
             st.rerun()
         
-        if st.button("📝 Document Analysis"):
+        if st.button("📝 Document Analysis", use_container_width=True):
             st.session_state.messages.append({"role": "user", "content": "Analyze the provided document and summarize key points.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
             st.rerun()
         
         st.markdown("---")
-        st.markdown("**Model Capabilities**")
+        st.markdown("**🎯 Model Capabilities**")
         
         # Feature cards
         st.markdown('<div class="feature-card">', unsafe_allow_html=True)
@@ -458,12 +487,17 @@ def main():
             
             # Generate response
             with st.spinner(f"Analyzing with {st.session_state.model}..."):
-                full_response = generate_response(
-                    [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
-                    st.session_state.model,
-                    use_web_search,
-                    document_context
-                )
+                # For Streamlit, we need to handle async functions differently
+                import asyncio
+                try:
+                    full_response = asyncio.run(generate_response(
+                        [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
+                        st.session_state.model,
+                        use_web_search,
+                        document_context
+                    ))
+                except Exception as e:
+                    full_response = f"Error: {str(e)}"
             
             # Display response
             message_placeholder.markdown(full_response)
