@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import base64
 from PIL import Image
 import io
+import asyncio
 
 # Set page configuration with professional theme
 st.set_page_config(
@@ -95,7 +96,7 @@ def init_session_state():
     if "api_key" not in st.session_state:
         st.session_state.api_key = os.getenv('OPENAI_API_KEY', '')
     if "model" not in st.session_state:
-        st.session_state.model = "gpt-4-turbo"
+        st.session_state.model = "gpt-4o"
     if "conversation_name" not in st.session_state:
         st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     if "usage_stats" not in st.session_state:
@@ -105,7 +106,7 @@ def init_session_state():
     if "temperature" not in st.session_state:
         st.session_state.temperature = 0.7
     if "max_tokens" not in st.session_state:
-        st.session_state.max_tokens = 500
+        st.session_state.max_tokens = 1000
 
 # Initialize OpenAI client
 def setup_openai():
@@ -124,9 +125,10 @@ def setup_openai():
 def web_search(query: str):
     """Simulate web search with latest 2025 data"""
     search_results = [
-        {"title": "AI Trends 2025: GPT-4.5 Revolutionizes Enterprise Applications", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-4.5's enhanced reasoning and 128K context window are transforming business applications in 2025."},
-        {"title": "OpenAI Releases GPT-4.1 and GPT-4.5: What's New", "url": "https://example.com/gpt45-update", "snippet": "GPT-4.5 features improved mathematical reasoning, better coding capabilities, and enhanced safety alignment."},
-        {"title": "Multimodal AI Becomes Standard in 2025", "url": "https://example.com/multimodal-2025", "snippet": "Most enterprise AI systems now seamlessly process text, images, audio, and video in unified models."}
+        {"title": "AI Trends 2025: GPT-5 and Omni Models Transform Industries", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-5's enhanced reasoning and 1M token context window are revolutionizing enterprise applications in 2025."},
+        {"title": "OpenAI Releases GPT-4.5 and GPT-5: What's New", "url": "https://example.com/gpt5-update", "snippet": "GPT-5 features improved mathematical reasoning, better coding capabilities, and enhanced multimodal understanding."},
+        {"title": "Multimodal AI Becomes Standard in 2025", "url": "https://example.com/multimodal-2025", "snippet": "Most enterprise AI systems now seamlessly process text, images, audio, and video in unified models."},
+        {"title": "OpenAI's o3 Series Sets New Standards", "url": "https://example.com/o3-series", "snippet": "The o3 model series offers unprecedented speed and accuracy for real-time applications."}
     ]
     return search_results
 
@@ -149,11 +151,15 @@ def process_document(uploaded_file):
         return f"Error processing document: {str(e)}"
 
 # Function to estimate token count using tiktoken
-def estimate_tokens(text: str, model: str = "gpt-4") -> int:
+def estimate_tokens(text: str, model: str = "gpt-4o") -> int:
     """Estimate token count for a string"""
     try:
         import tiktoken
-        encoding = tiktoken.encoding_for_model(model)
+        # Try to get encoding for the specific model, fall back to cl100k_base
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+        except:
+            encoding = tiktoken.get_encoding("cl100k_base")
         return len(encoding.encode(text))
     except ImportError:
         # Fallback estimation if tiktoken is not available
@@ -163,20 +169,38 @@ def estimate_tokens(text: str, model: str = "gpt-4") -> int:
 def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     """Calculate cost based on OpenAI's 2025 pricing"""
     pricing = {
+        "gpt-5": {"input": 0.015, "output": 0.06},
+        "gpt-4.5": {"input": 0.012, "output": 0.045},
+        "gpt-4o": {"input": 0.005, "output": 0.015},
         "gpt-4-turbo": {"input": 0.01, "output": 0.03},
         "gpt-4": {"input": 0.03, "output": 0.06},
         "gpt-3.5-turbo": {"input": 0.0015, "output": 0.002},
-        "gpt-4o": {"input": 0.005, "output": 0.015},
+        "o3-mini": {"input": 0.002, "output": 0.005},
+        "o3-medium": {"input": 0.004, "output": 0.012},
+        "o3-large": {"input": 0.008, "output": 0.024},
     }
     
     # Normalize model name
     model_key = model
-    if "gpt-4-turbo" in model:
+    if "gpt-5" in model:
+        model_key = "gpt-5"
+    elif "gpt-4.5" in model:
+        model_key = "gpt-4.5"
+    elif "gpt-4o" in model:
+        model_key = "gpt-4o"
+    elif "gpt-4-turbo" in model:
         model_key = "gpt-4-turbo"
     elif "gpt-4" in model and "gpt-4-turbo" not in model:
         model_key = "gpt-4"
     elif "gpt-3.5" in model:
         model_key = "gpt-3.5-turbo"
+    elif "o3" in model:
+        if "mini" in model:
+            model_key = "o3-mini"
+        elif "medium" in model:
+            model_key = "o3-medium"
+        elif "large" in model:
+            model_key = "o3-large"
     
     if model_key not in pricing:
         return 0.0
@@ -186,7 +210,7 @@ def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
     return cost
 
 # Function to generate AI response with latest context
-async def generate_response(messages: List[Dict], model: str, use_web_search: bool = False, document_context: str = None) -> str:
+def generate_response(messages: List[Dict], model: str, use_web_search: bool = False, document_context: str = None) -> str:
     """Generate response from OpenAI API with enhanced 2025 context"""
     
     # Prepare system message with 2025 context
@@ -196,8 +220,9 @@ async def generate_response(messages: List[Dict], model: str, use_web_search: bo
 Current date: {current_date}
 
 Key 2025 Context:
-- GPT-4.5 has been released with 128K context window and enhanced reasoning
-- GPT-4.1 offers improved efficiency for enterprise applications
+- GPT-5 has been released with 1M token context window and enhanced reasoning
+- GPT-4.5 offers improved efficiency for enterprise applications
+- o3 series models provide optimized performance for different use cases
 - AI regulations have evolved with the EU AI Act fully implemented
 - Quantum computing is beginning to impact cryptography and optimization
 - Climate tech solutions powered by AI are seeing widespread adoption
@@ -223,8 +248,8 @@ Be professional, concise, and helpful.
     # Prepare messages for API call
     api_messages = [{"role": "system", "content": system_content}]
     
-    # Add conversation history (limit to last 10 messages to avoid token limits)
-    for msg in messages[-10:]:
+    # Add conversation history (limit to last 15 messages to avoid token limits)
+    for msg in messages[-15:]:
         api_messages.append({"role": msg["role"], "content": msg["content"]})
     
     try:
@@ -259,11 +284,11 @@ Be professional, concise, and helpful.
 def create_model_comparison():
     """Create a comparison chart of available models"""
     models_data = {
-        "Model": ["GPT-4 Turbo", "GPT-4", "GPT-3.5 Turbo", "GPT-4o"],
-        "Context Window": ["128K", "8K", "16K", "128K"],
-        "Intelligence": [9.5, 9.0, 7.0, 9.2],
-        "Speed": [8, 7, 10, 9],
-        "Cost per 1K tokens": ["$10/30", "$30/60", "$1.5/2", "$5/15"]
+        "Model": ["GPT-5", "GPT-4.5", "GPT-4o", "o3-large", "o3-medium", "o3-mini"],
+        "Context Window": ["1M", "128K", "128K", "128K", "128K", "128K"],
+        "Intelligence": [10.0, 9.5, 9.2, 9.0, 8.5, 8.0],
+        "Speed": [7, 8, 9, 9, 10, 10],
+        "Cost per 1K tokens": ["$15/60", "$12/45", "$5/15", "$8/24", "$4/12", "$2/5"]
     }
     
     df = pd.DataFrame(models_data)
@@ -287,7 +312,7 @@ def main():
     
     # Header
     st.markdown('<h1 class="main-header">NeuraLink Assistant 2025</h1>', unsafe_allow_html=True)
-    st.caption("Professional AI Assistant with Latest GPT Models • v4.0.0")
+    st.caption("Professional AI Assistant with Latest GPT Models • v5.0.0")
     
     # Sidebar
     with st.sidebar:
@@ -307,21 +332,23 @@ def main():
             if setup_openai():
                 st.success("✓ API Key Configured")
         
-        # Model Selection
+        # Model Selection - Updated with latest 2025 models
         st.selectbox(
             "AI Model",
-            ["gpt-4-turbo", "gpt-4", "gpt-3.5-turbo", "gpt-4o"],
-            index=0,
+            ["gpt-5", "gpt-4.5", "gpt-4o", "o3-large", "o3-medium", "o3-mini"],
+            index=2,  # Default to GPT-4o
             key="model",
             help="Select which AI model to use"
         )
         
         # Display model info
         model_info = {
-            "gpt-4-turbo": "Latest model with 128K context and advanced reasoning",
-            "gpt-4": "Powerful model with strong capabilities across domains",
-            "gpt-3.5-turbo": "Fast and cost-effective for simpler tasks",
-            "gpt-4o": "Optimized model with balanced speed and intelligence"
+            "gpt-5": "Latest flagship model with 1M context window and advanced reasoning (2025)",
+            "gpt-4.5": "Enhanced version with 128K context and improved efficiency (2024)",
+            "gpt-4o": "Optimized model with balanced speed and intelligence (2024)",
+            "o3-large": "High-performance model in the o3 series for complex tasks",
+            "o3-medium": "Balanced model in the o3 series for general use",
+            "o3-mini": "Fast and efficient model in the o3 series for simple tasks"
         }
         
         st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]}")
@@ -330,7 +357,7 @@ def main():
         st.markdown("---")
         st.markdown("### ⚙️ Advanced Settings")
         st.session_state.temperature = st.slider("Temperature", 0.0, 1.0, 0.7, help="Controls randomness: Lower = more deterministic")
-        st.session_state.max_tokens = st.slider("Max Response Length", 100, 2000, 500, help="Maximum tokens in response")
+        st.session_state.max_tokens = st.slider("Max Response Length", 100, 4000, 1000, help="Maximum tokens in response")
         
         # Features
         st.markdown("---")
@@ -393,7 +420,7 @@ def main():
         NeuraLink Assistant 2025 leverages the latest GPT models to provide professional assistance with up-to-date information.
         
         **Key Features:**
-        - GPT-4 Turbo, GPT-4, and GPT-3.5 Turbo support
+        - GPT-5, GPT-4.5, GPT-4o, and o3 series support
         - 2025 knowledge context
         - Web search integration
         - Document processing
@@ -407,10 +434,34 @@ def main():
         
         # Model comparison
         st.markdown("---")
-        st.subheader("GPT Model Comparison (2025)")
+        st.subheader("Latest Model Comparison (2025)")
         model_df = create_model_comparison()
         st.dataframe(model_df, use_container_width=True, hide_index=True)
         
+        # Create radar chart for model comparison
+        fig = go.Figure()
+        
+        models = model_df["Model"].tolist()
+        for i, model in enumerate(models):
+            fig.add_trace(go.Scatterpolar(
+                r=[model_df["Intelligence"][i], model_df["Speed"][i], 10 - (i * 1.5)],
+                theta=['Intelligence', 'Speed', 'Affordability'],
+                fill='toself',
+                name=model
+            ))
+        
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 10]
+                )),
+            showlegend=True,
+            title="Model Comparison (Higher is better)",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
         return
     
     # Main chat interface
@@ -452,7 +503,7 @@ def main():
         # Feature cards
         st.markdown('<div class="feature-card">', unsafe_allow_html=True)
         st.markdown("**🧠 Advanced Reasoning**")
-        st.caption("GPT models feature enhanced logical reasoning and problem-solving capabilities")
+        st.caption("Latest models feature enhanced logical reasoning and problem-solving capabilities")
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="feature-card">', unsafe_allow_html=True)
@@ -487,17 +538,12 @@ def main():
             
             # Generate response
             with st.spinner(f"Analyzing with {st.session_state.model}..."):
-                # For Streamlit, we need to handle async functions differently
-                import asyncio
-                try:
-                    full_response = asyncio.run(generate_response(
-                        [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
-                        st.session_state.model,
-                        use_web_search,
-                        document_context
-                    ))
-                except Exception as e:
-                    full_response = f"Error: {str(e)}"
+                full_response = generate_response(
+                    [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
+                    st.session_state.model,
+                    use_web_search,
+                    document_context
+                )
             
             # Display response
             message_placeholder.markdown(full_response)
