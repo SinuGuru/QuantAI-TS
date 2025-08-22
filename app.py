@@ -762,7 +762,7 @@ def main():
             st.success(f"✓ Document processed: {document_upload.name}")
         
         # Image upload for multimodal processing
-        image_upload = st.file_uploader("Upload Image", type["png", "jpg", "jpeg"], help="Analyze images with AI vision")
+        image_upload = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"], help="Analyze images with AI vision")
         image_context = None
         if image_upload:
             with st.spinner("Processing image..."):
