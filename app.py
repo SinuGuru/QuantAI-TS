@@ -22,81 +22,193 @@ import uuid
 
 # Set page configuration with professional theme
 st.set_page_config(
-    page_title="Enterprise AI Assistant 2025",
+    page_title="NeuraLink AI Assistant",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for professional styling
+# Enhanced Custom CSS for modern styling
 st.markdown("""
 <style>
+    /* Global Styles */
+    .main {
+        background-color: #f8fafc;
+    }
+    
     .main-header {
-        font-size: 3rem;
-        color: #1f3d7a;
+        font-size: 2.8rem;
+        color: #1e40af;
         text-align: center;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
+    
     .subheader {
-        font-size: 1.5rem;
-        color: #2c5aa0;
-        border-bottom: 1px solid #eee;
-        padding-bottom: 0.3rem;
+        font-size: 1.4rem;
+        color: #374151;
+        border-bottom: 2px solid #e5e7eb;
+        padding-bottom: 0.5rem;
+        margin-bottom: 1rem;
+        font-weight: 600;
     }
-    .chat-container {
-        background-color: #f9f9f9;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 20px;
-        border-left: 5px solid #2c5aa0;
+    
+    /* Chat Messages */
+    .chat-message {
+        padding: 1.2rem 1.5rem;
+        border-radius: 12px;
+        margin-bottom: 1rem;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
+    
+    .chat-message.user {
+        background-color: #3b82f6;
+        color: white;
+        border-left: 4px solid #1e40af;
+        margin-left: 15%;
+    }
+    
+    .chat-message.assistant {
+        background-color: white;
+        color: #374151;
+        border-left: 4px solid #10b981;
+        margin-right: 15%;
+    }
+    
+    .timestamp {
+        font-size: 0.75rem;
+        color: #6b7280;
+        text-align: right;
+        margin-top: 0.5rem;
+    }
+    
+    /* Buttons */
     .stButton button {
-        background-color: #2c5aa0;
+        background-color: #3b82f6;
         color: white;
         border: none;
-        padding: 10px 24px;
-        border-radius: 5px;
+        padding: 0.7rem 1.5rem;
+        border-radius: 8px;
         font-weight: 500;
+        transition: all 0.2s ease;
     }
+    
     .stButton button:hover {
-        background-color: #1f3d7a;
+        background-color: #1e40af;
         color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
     }
+    
+    /* Sidebar */
     .sidebar .sidebar-content {
-        background-color: #f0f2f6;
-    }
-    .timestamp {
-        font-size: 0.8rem;
-        color: #666;
-        text-align: right;
-    }
-    .model-badge {
-        background-color: #1f3d7a;
+        background: linear-gradient(180deg, #1e40af 0%, #3b82f6 100%);
         color: white;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 0.8rem;
-        margin-left: 8px;
     }
+    
+    .sidebar .stTextInput input, .sidebar .stSelectbox select {
+        background-color: rgba(255, 255, 255, 0.9);
+        border-radius: 8px;
+    }
+    
+    /* Cards */
     .feature-card {
         background-color: white;
-        border-radius: 8px;
-        padding: 15px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        margin-bottom: 15px;
-        border-left: 4px solid #2c5aa0;
+        border-radius: 12px;
+        padding: 1.2rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        margin-bottom: 1rem;
+        border-left: 4px solid #3b82f6;
+        transition: transform 0.2s ease;
     }
+    
+    .feature-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+    }
+    
     .usage-card {
-        background-color: #f8f9fa;
-        border-radius: 8px;
-        padding: 10px;
-        margin: 5px 0;
-    }
-    .tab-content {
-        padding: 20px;
         background-color: white;
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    
+    /* Model Badge */
+    .model-badge {
+        background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+        color: white;
+        padding: 0.4rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-left: 10px;
+    }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #f1f5f9;
+        border-radius: 8px 8px 0 0;
+        gap: 8px;
+        padding: 12px 24px;
+        font-weight: 600;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: #3b82f6;
+        color: white;
+    }
+    
+    /* Input Fields */
+    .stTextInput input, .stSelectbox select, .stSlider div {
         border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        margin-top: 10px;
+    }
+    
+    /* Chat Input */
+    .stChatInput {
+        position: fixed;
+        bottom: 20px;
+        width: 70%;
+        left: 25%;
+        background: white;
+        padding: 10px;
+        border-radius: 12px;
+        box-shadow: 0 -4px 12px rgba(0,0,0,0.1);
+    }
+    
+    /* Login Form */
+    .login-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+    }
+    
+    .login-form {
+        background: white;
+        padding: 2.5rem;
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        width: 400px;
+    }
+    
+    /* Icons */
+    .icon-large {
+        font-size: 2rem;
+        margin-bottom: 1rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -110,7 +222,7 @@ def init_session_state():
     if "api_key" not in st.session_state:
         st.session_state.api_key = os.getenv('OPENAI_API_KEY', '')
     if "model" not in st.session_state:
-        st.session_state.model = "gpt-4o"
+        st.session_state.model = "gpt-4.1"  # Default to GPT-4.1
     if "conversation_name" not in st.session_state:
         st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     if "usage_stats" not in st.session_state:
@@ -193,10 +305,10 @@ def setup_openai():
 def web_search(query: str):
     """Simulate web search with latest 2025 data"""
     search_results = [
-        {"title": "AI Trends 2025: GPT-5 and Omni Models Transform Industries", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-5's enhanced reasoning and 1M token context window are revolutionizing enterprise applications in 2025."},
-        {"title": "OpenAI Releases GPT-4.5 and GPT-5: What's New", "url": "https://example.com/gpt5-update", "snippet": "GPT-5 features improved mathematical reasoning, better coding capabilities, and enhanced multimodal understanding."},
+        {"title": "AI Trends 2025: GPT-4.1 and GPT-5 Transform Industries", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-4.1's enhanced reasoning and 256K token context window are revolutionizing enterprise applications in 2025."},
+        {"title": "OpenAI Releases GPT-4.1: What's New", "url": "https://example.com/gpt41-update", "snippet": "GPT-4.1 features improved mathematical reasoning, better coding capabilities, and enhanced multimodal understanding."},
         {"title": "Multimodal AI Becomes Standard in 2025", "url": "https://example.com/multimodal-2025", "snippet": "Most enterprise AI systems now seamlessly process text, images, audio, and video in unified models."},
-        {"title": "OpenAI's o3 Series Sets New Standards", "url": "https://example.com/o3-series", "snippet": "The o3 model series offers unprecedented speed and accuracy for real-time applications."}
+        {"title": "OpenAI's GPT-4.1 Sets New Standards", "url": "https://example.com/gpt41-series", "snippet": "The GPT-4.1 model offers unprecedented speed and accuracy for real-time applications."}
     ]
     return search_results
 
@@ -257,7 +369,7 @@ def process_image(uploaded_image):
         return f"Error processing image: {str(e)}"
 
 # Function to estimate token count using tiktoken
-def estimate_tokens(text: str, model: str = "gpt-4o") -> int:
+def estimate_tokens(text: str, model: str = "gpt-4.1") -> int:
     """Estimate token count for a string"""
     try:
         # Try to get encoding for the specific model, fall back to cl100k_base
@@ -276,13 +388,9 @@ def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
     pricing = {
         "gpt-5": {"input": 0.015, "output": 0.06},
         "gpt-4.5": {"input": 0.012, "output": 0.045},
+        "gpt-4.1": {"input": 0.008, "output": 0.025},  # Added GPT-4.1 pricing
         "gpt-4o": {"input": 0.005, "output": 0.015},
         "gpt-4-turbo": {"input": 0.01, "output": 0.03},
-        "gpt-4": {"input": 0.03, "output": 0.06},
-        "gpt-3.5-turbo": {"input": 0.0015, "output": 0.002},
-        "o3-mini": {"input": 0.002, "output": 0.005},
-        "o3-medium": {"input": 0.004, "output": 0.012},
-        "o3-large": {"input": 0.008, "output": 0.024},
     }
     
     # Normalize model name
@@ -291,21 +399,12 @@ def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
         model_key = "gpt-5"
     elif "gpt-4.5" in model:
         model_key = "gpt-4.5"
+    elif "gpt-4.1" in model:
+        model_key = "gpt-4.1"
     elif "gpt-4o" in model:
         model_key = "gpt-4o"
     elif "gpt-4-turbo" in model:
         model_key = "gpt-4-turbo"
-    elif "gpt-4" in model and "gpt-4-turbo" not in model:
-        model_key = "gpt-4"
-    elif "gpt-3.5" in model:
-        model_key = "gpt-3.5-turbo"
-    elif "o3" in model:
-        if "mini" in model:
-            model_key = "o3-mini"
-        elif "medium" in model:
-            model_key = "o3-medium"
-        elif "large" in model:
-            model_key = "o3-large"
     
     if model_key not in pricing:
         return 0.0
@@ -376,6 +475,7 @@ Current date: {current_date}
 Key 2025 Context:
 - GPT-5 has been released with 1M token context window and enhanced reasoning
 - GPT-4.5 offers improved efficiency for enterprise applications
+- GPT-4.1 provides optimized performance with enhanced capabilities
 - o3 series models provide optimized performance for different use cases
 - AI regulations have evolved with the EU AI Act fully implemented
 - Quantum computing is beginning to impact cryptography and optimization
@@ -448,11 +548,11 @@ Be professional, concise, and helpful.
 def create_model_comparison():
     """Create a comparison chart of available models"""
     models_data = {
-        "Model": ["GPT-5", "GPT-4.5", "GPT-4o", "o3-large", "o3-medium", "o3-mini"],
-        "Context Window": ["1M", "128K", "128K", "128K", "128K", "128K"],
-        "Intelligence": [10.0, 9.5, 9.2, 9.0, 8.5, 8.0],
-        "Speed": [7, 8, 9, 9, 10, 10],
-        "Cost per 1K tokens": ["$15/60", "$12/45", "$5/15", "$8/24", "$4/12", "$2/5"]
+        "Model": ["GPT-5", "GPT-4.5", "GPT-4.1", "GPT-4o"],
+        "Context Window": ["1M", "128K", "256K", "128K"],
+        "Intelligence": [10.0, 9.5, 9.3, 9.2],
+        "Speed": [7, 8, 8.5, 9],
+        "Cost per 1K tokens": ["$15/60", "$12/45", "$8/25", "$5/15"]
     }
     
     df = pd.DataFrame(models_data)
@@ -559,13 +659,18 @@ def main():
     
     # Check if user is authenticated
     if not st.session_state.authenticated:
-        # Login form
-        st.title("Enterprise AI Assistant Login")
+        # Enhanced login form
+        st.markdown("""
+        <div class="login-container">
+            <div class="login-form">
+                <h1 style="text-align: center; color: #1e40af; margin-bottom: 1.5rem;">🤖 NeuraLink AI</h1>
+                <p style="text-align: center; color: #6b7280; margin-bottom: 2rem;">Enterprise AI Assistant 2025</p>
+        """, unsafe_allow_html=True)
         
         with st.form("login_form"):
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            submit_button = st.form_submit_button("Login")
+            username = st.text_input("Username", placeholder="Enter your username")
+            password = st.text_input("Password", type="password", placeholder="Enter your password")
+            submit_button = st.form_submit_button("Login", use_container_width=True)
             
             if submit_button:
                 authenticated, name = check_credentials(username, password)
@@ -576,6 +681,14 @@ def main():
                 else:
                     st.error("Invalid username or password")
         
+        st.markdown("""
+            <p style="text-align: center; color: #9ca3af; margin-top: 2rem;">
+                Demo credentials: jsmith/password123 or rjohnson/password456
+            </p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
         return
     
     # User is authenticated, show the main app
@@ -585,11 +698,13 @@ def main():
     if st.session_state.client is None:
         setup_openai()
     
-    # Header
-    st.markdown('<h1 class="main-header">Enterprise AI Assistant 2025</h1>', unsafe_allow_html=True)
-    st.caption(f"Welcome, {st.session_state.user_id}! • v6.0.0")
+    # Header with improved styling
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown('<h1 class="main-header">NeuraLink AI Assistant</h1>', unsafe_allow_html=True)
+        st.caption(f"Welcome, {st.session_state.user_id}! • Enterprise AI Assistant 2025 • v6.0.0")
     
-    # Sidebar
+    # Sidebar with improved styling
     with st.sidebar:
         st.markdown("### 🔧 Configuration")
         
@@ -599,7 +714,8 @@ def main():
             value=st.session_state.api_key,
             type="password",
             help="Enter your OpenAI API key to begin",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            placeholder="Paste your OpenAI API key here"
         )
         
         if api_key and api_key != st.session_state.api_key:
@@ -607,20 +723,21 @@ def main():
             if setup_openai():
                 st.success("✓ API Key Configured")
         
-        # Model Selection - Updated with latest 2025 models
+        # Model Selection - Only GPT-4.1 and above models
         st.selectbox(
             "AI Model",
-            ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],  # Using available models
-            index=0,  # Default to GPT-4o
+            ["gpt-4.1", "gpt-4o", "gpt-4.5", "gpt-5"],  # Only GPT-4.1 and above models
+            index=0,  # Default to GPT-4.1
             key="model",
             help="Select which AI model to use"
         )
         
         # Display model info
         model_info = {
+            "gpt-4.1": "Enhanced version with 256K context and improved reasoning capabilities (2025)",
             "gpt-4o": "Optimized model with balanced speed and intelligence (2024)",
-            "gpt-4-turbo": "High-performance model for complex tasks",
-            "gpt-3.5-turbo": "Fast and efficient model for simple tasks"
+            "gpt-4.5": "High-performance model for complex tasks (2025)",
+            "gpt-5": "Flagship model with 1M context window and advanced reasoning (2025)"
         }
         
         st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]}")
@@ -645,7 +762,7 @@ def main():
             st.success(f"✓ Document processed: {document_upload.name}")
         
         # Image upload for multimodal processing
-        image_upload = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"], help="Analyze images with AI vision")
+        image_upload = st.file_uploader("Upload Image", type["png", "jpg", "jpeg"], help="Analyze images with AI vision")
         image_context = None
         if image_upload:
             with st.spinner("Processing image..."):
@@ -655,7 +772,7 @@ def main():
         # Voice input
         st.markdown("---")
         st.markdown("### 🎤 Voice Input")
-        if st.button("Start Voice Input"):
+        if st.button("Start Voice Input", use_container_width=True):
             voice_text = speech_to_text()
             if voice_text and voice_text not in ["No speech detected", "Could not understand audio", "Microphone not available"]:
                 st.session_state.messages.append({"role": "user", "content": voice_text, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
@@ -670,19 +787,19 @@ def main():
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🆕 New Conversation"):
+            if st.button("🆕 New Conversation", use_container_width=True):
                 st.session_state.messages = [
                     {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")}
                 ]
                 st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
                 st.rerun()
         with col2:
-            if st.button("🗑️ Clear History"):
+            if st.button("🗑️ Clear History", use_container_width=True):
                 st.session_state.messages = st.session_state.messages[:1]  # Keep only the first message
                 st.rerun()
         
         # Export conversation
-        if st.button("📤 Export Conversation"):
+        if st.button("📤 Export Conversation", use_container_width=True):
             conversation_data = []
             for msg in st.session_state.messages:
                 conversation_data.append({
@@ -697,7 +814,8 @@ def main():
                 label="Download Conversation",
                 data=json_str,
                 file_name=f"conversation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
+                mime="application/json",
+                use_container_width=True
             )
         
         # Usage statistics
@@ -708,10 +826,10 @@ def main():
         st.markdown("---")
         st.markdown("### ℹ️ About")
         st.markdown("""
-        Enterprise AI Assistant 2025 leverages the latest GPT models to provide professional assistance with up-to-date information.
+        NeuraLink AI Assistant leverages the latest GPT models to provide professional assistance with up-to-date information.
         
         **Key Features:**
-        - GPT-4o, GPT-4-turbo, and GPT-3.5-turbo support
+        - GPT-5, GPT-4.5, GPT-4.1, and GPT-4o support
         - 2025 knowledge context
         - Web search integration
         - Document processing
@@ -743,18 +861,17 @@ def main():
         with col1:
             st.markdown(f'<div class="subheader">Conversation: {st.session_state.conversation_name} <span class="model-badge">{st.session_state.model}</span></div>', unsafe_allow_html=True)
             
-            # Display chat messages
+            # Display chat messages with improved styling
             for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
-                    if "timestamp" in message:
-                        st.markdown(f'<div class="timestamp">{message["timestamp"]}</div>', unsafe_allow_html=True)
+                if message["role"] == "user":
+                    st.markdown(f'<div class="chat-message user"><div>{message["content"]}</div><div class="timestamp">{message["timestamp"]}</div></div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="chat-message assistant"><div>{message["content"]}</div><div class="timestamp">{message["timestamp"]}</div></div>', unsafe_allow_html=True)
                     
                     # Add text-to-speech button for assistant responses
-                    if message["role"] == "assistant":
-                        audio_bytes = text_to_speech(message["content"])
-                        if audio_bytes:
-                            st.audio(audio_bytes, format="audio/mp3")
+                    audio_bytes = text_to_speech(message["content"])
+                    if audio_bytes:
+                        st.audio(audio_bytes, format="audio/mp3")
         
         with col2:
             st.markdown('<div class="subheader">🚀 Quick Actions</div>', unsafe_allow_html=True)
@@ -779,26 +896,34 @@ def main():
             st.markdown("---")
             st.markdown("**🎯 Model Capabilities**")
             
-            # Feature cards
-            st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-            st.markdown("**🧠 Advanced Reasoning**")
-            st.caption("Latest models feature enhanced logical reasoning and problem-solving capabilities")
-            st.markdown('</div>', unsafe_allow_html=True)
+            # Feature cards with improved styling
+            st.markdown("""
+            <div class="feature-card">
+                <h4>🧠 Advanced Reasoning</h4>
+                <p>Latest models feature enhanced logical reasoning and problem-solving capabilities</p>
+            </div>
+            """, unsafe_allow_html=True)
             
-            st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-            st.markdown("**📊 Data Analysis**")
-            st.caption("Built-in data interpretation and visualization capabilities")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("""
+            <div class="feature-card">
+                <h4>📊 Data Analysis</h4>
+                <p>Built-in data interpretation and visualization capabilities</p>
+            </div>
+            """, unsafe_allow_html=True)
             
-            st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-            st.markdown("**🌐 Web Context**")
-            st.caption("Access to the latest 2025 information through integrated web search")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("""
+            <div class="feature-card">
+                <h4>🌐 Web Context</h4>
+                <p>Access to the latest 2025 information through integrated web search</p>
+            </div>
+            """, unsafe_allow_html=True)
             
-            st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-            st.markdown("**📄 Document Processing**")
-            st.caption("Analyze and extract insights from uploaded PDF and text documents")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("""
+            <div class="feature-card">
+                <h4>📄 Document Processing</h4>
+                <p>Analyze and extract insights from uploaded PDF and text documents</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         # Chat input
         if prompt := st.chat_input("Type your message here..."):
@@ -806,35 +931,27 @@ def main():
             st.session_state.messages.append({"role": "user", "content": prompt, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
             
             # Display user message
-            with st.chat_message("user"):
-                st.markdown(prompt)
-                st.markdown(f'<div class="timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="chat-message user"><div>{prompt}</div><div class="timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M")}</div></div>', unsafe_allow_html=True)
             
             # Display assistant response
-            with st.chat_message("assistant"):
-                message_placeholder = st.empty()
-                full_response = ""
-                
-                # Generate response - FIXED THE SYNTAX ERROR HERE
-                with st.spinner(f"Analyzing with {st.session_state.model}..."):
-                    # Corrected the list comprehension syntax
-                    messages_for_api = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
-                    full_response = generate_response_with_retry(
-                        messages_for_api,
-                        st.session_state.model,
-                        use_web_search,
-                        document_context,
-                        image_context
-                    )
-                
-                # Display response
-                message_placeholder.markdown(full_response)
-                st.markdown(f'<div class="timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
-                
-                # Add text-to-speech for response
-                audio_bytes = text_to_speech(full_response)
-                if audio_bytes:
-                    st.audio(audio_bytes, format="audio/mp3")
+            with st.spinner(f"Analyzing with {st.session_state.model}..."):
+                # Corrected the list comprehension syntax
+                messages_for_api = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+                full_response = generate_response_with_retry(
+                    messages_for_api,
+                    st.session_state.model,
+                    use_web_search,
+                    document_context,
+                    image_context
+                )
+            
+            # Display response
+            st.markdown(f'<div class="chat-message assistant"><div>{full_response}</div><div class="timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M")}</div></div>', unsafe_allow_html=True)
+            
+            # Add text-to-speech for response
+            audio_bytes = text_to_speech(full_response)
+            if audio_bytes:
+                st.audio(audio_bytes, format="audio/mp3")
             
             # Add assistant response to chat history
             st.session_state.messages.append({"role": "assistant", "content": full_response, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
@@ -847,41 +964,46 @@ def main():
         cols = st.columns(2)
         for i, (tool_id, tool_info) in enumerate(st.session_state.workflow_tools.items()):
             with cols[i % 2]:
-                with st.expander(f"{tool_info['icon']} {tool_info['name']}"):
-                    st.write(tool_info['description'])
-                    if st.button(f"Use {tool_info['name']}", key=f"tool_{tool_id}"):
-                        # Set up context for the selected tool
-                        if tool_id == "code_review":
-                            st.session_state.messages.append({
-                                "role": "user", 
-                                "content": "I need help with code review. Please analyze this code for best practices, potential bugs, and optimization opportunities.",
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
-                            })
-                        elif tool_id == "document_generation":
-                            st.session_state.messages.append({
-                                "role": "user", 
-                                "content": "Help me create a professional document. I need a template for a project report with sections for executive summary, methodology, findings, and recommendations.",
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
-                            })
-                        elif tool_id == "data_analysis":
-                            st.session_state.messages.append({
-                                "role": "user", 
-                                "content": "I need assistance with data analysis. Can you help me understand how to approach analyzing this dataset and what visualizations would be most effective?",
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
-                            })
-                        elif tool_id == "research_assistant":
-                            st.session_state.messages.append({
-                                "role": "user", 
-                                "content": "I'm conducting research on AI ethics. Can you help me find relevant sources, identify key themes, and structure my literature review?",
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
-                            })
-                        elif tool_id == "meeting_assistant":
-                            st.session_state.messages.append({
-                                "role": "user", 
-                                "content": "I need help summarizing a meeting and extracting action items. Can you provide a template for meeting minutes and action item tracking?",
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
-                            })
-                        st.switch_page("💬 Chat")
+                st.markdown(f"""
+                <div class="feature-card">
+                    <h4>{tool_info['icon']} {tool_info['name']}</h4>
+                    <p>{tool_info['description']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if st.button(f"Use {tool_info['name']}", key=f"tool_{tool_id}", use_container_width=True):
+                    # Set up context for the selected tool
+                    if tool_id == "code_review":
+                        st.session_state.messages.append({
+                            "role": "user", 
+                            "content": "I need help with code review. Please analyze this code for best practices, potential bugs, and optimization opportunities.",
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        })
+                    elif tool_id == "document_generation":
+                        st.session_state.messages.append({
+                            "role": "user", 
+                            "content": "Help me create a professional document. I need a template for a project report with sections for executive summary, methodology, findings, and recommendations.",
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        })
+                    elif tool_id == "data_analysis":
+                        st.session_state.messages.append({
+                            "role": "user", 
+                            "content": "I need assistance with data analysis. Can you help me understand how to approach analyzing this dataset and what visualizations would be most effective?",
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        })
+                    elif tool_id == "research_assistant":
+                        st.session_state.messages.append({
+                            "role": "user", 
+                            "content": "I'm conducting research on AI ethics. Can you help me find relevant sources, identify key themes, and structure my literature review?",
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        })
+                    elif tool_id == "meeting_assistant":
+                        st.session_state.messages.append({
+                            "role": "user", 
+                            "content": "I need help summarizing a meeting and extracting action items. Can you provide a template for meeting minutes and action item tracking?",
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        })
+                    st.switch_page("💬 Chat")
     
     with tab3:
         create_analytics_dashboard()
@@ -896,7 +1018,7 @@ def main():
         with col1:
             st.subheader("Upload to Knowledge Base")
             kb_upload = st.file_uploader("Select files to add to knowledge base", type=["pdf", "txt"], key="kb_upload")
-            if kb_upload and st.button("Add to Knowledge Base"):
+            if kb_upload and st.button("Add to Knowledge Base", use_container_width=True):
                 with st.spinner("Processing and adding to knowledge base..."):
                     content = process_document(kb_upload)
                     doc_id = str(uuid.uuid4())
@@ -919,7 +1041,7 @@ def main():
                     with st.expander(doc_info["name"]):
                         st.caption(f"Uploaded: {doc_info['upload_date']}")
                         st.write(f"{len(doc_info['content'])} characters")
-                        if st.button("Delete", key=f"del_{doc_id}"):
+                        if st.button("Delete", key=f"del_{doc_id}", use_container_width=True):
                             del st.session_state.knowledge_base[doc_id]
                             st.rerun()
                 
