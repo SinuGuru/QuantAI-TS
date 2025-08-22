@@ -13,15 +13,11 @@ from PIL import Image
 import io
 import time
 import tempfile
-import chromadb
-from chromadb.config import Settings
 import hashlib
 import tiktoken
-from streamlit_authenticator import Authenticate
 import secrets
 import speech_recognition as sr
 from gtts import gTTS
-import io
 import uuid
 
 # Set page configuration with professional theme
@@ -129,8 +125,6 @@ def init_session_state():
         st.session_state.user_id = None
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
-    if "vector_db" not in st.session_state:
-        st.session_state.vector_db = None
     if "knowledge_base" not in st.session_state:
         st.session_state.knowledge_base = {}
     if "workflow_tools" not in st.session_state:
@@ -138,48 +132,17 @@ def init_session_state():
     if "conversation_summaries" not in st.session_state:
         st.session_state.conversation_summaries = {}
 
-# Initialize authentication
-def setup_authentication():
-    """Setup user authentication system"""
-    # In a real application, you would use a proper database
-    # For demo purposes, we'll use a simple dictionary
-    credentials = {
-        'usernames': {
-            'jsmith': {
-                'name': 'John Smith',
-                'password': hashlib.sha256('password123'.encode()).hexdigest()
-            },
-            'rjohnson': {
-                'name': 'Robert Johnson',
-                'password': hashlib.sha256('password456'.encode()).hexdigest()
-            }
-        }
+# Simple authentication system (replace with proper auth in production)
+def check_credentials(username, password):
+    """Simple credential check (replace with proper auth in production)"""
+    users = {
+        'jsmith': {'name': 'John Smith', 'password': 'password123'},
+        'rjohnson': {'name': 'Robert Johnson', 'password': 'password456'}
     }
     
-    authenticator = Authenticate(
-        credentials,
-        'auth_cookie',
-        'auth_key',
-        cookie_expiry_days=30
-    )
-    
-    return authenticator
-
-# Initialize vector database
-def setup_vector_db():
-    """Initialize ChromaDB vector database"""
-    try:
-        chroma_client = chromadb.Client(Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory="./chroma_db"
-        ))
-        
-        # Create or get collection
-        collection = chroma_client.get_or_create_collection(name="documents")
-        return collection
-    except Exception as e:
-        st.error(f"Error setting up vector database: {str(e)}")
-        return None
+    if username in users and users[username]['password'] == password:
+        return True, users[username]['name']
+    return False, None
 
 # Initialize workflow tools
 def setup_workflow_tools():
@@ -303,7 +266,7 @@ def estimate_tokens(text: str, model: str = "gpt-4o") -> int:
         except:
             encoding = tiktoken.get_encoding("cl100k_base")
         return len(encoding.encode(text))
-    except ImportError:
+    except:
         # Fallback estimation if tiktoken is not available
         return len(text.split()) * 1.33
 
@@ -512,12 +475,12 @@ def create_analytics_dashboard():
     st.subheader("📈 Usage Analytics Dashboard")
     
     # Create sample data for demonstration
-    dates = pd.date_range(start='2025-01-01', end='2025-08-22', freq='D')
+    dates = pd.date_range(start='2025-01-01', periods=30, freq='D')
     usage_data = {
         'Date': dates,
-        'Tokens': [max(1000, int(5000 * (0.5 + 0.5 * np.sin(i/10)))) for i in range(len(dates))],
-        'Cost': [max(5, 25 * (0.5 + 0.5 * np.sin(i/7))) for i in range(len(dates))],
-        'Requests': [max(10, int(50 * (0.5 + 0.5 * np.sin(i/5)))) for i in range(len(dates))]
+        'Tokens': [max(1000, int(5000 * (0.5 + 0.5 * (i/10)))) for i in range(len(dates))],
+        'Cost': [max(5, 25 * (0.5 + 0.5 * (i/7))) for i in range(len(dates))],
+        'Requests': [max(10, int(50 * (0.5 + 0.5 * (i/5)))) for i in range(len(dates))]
     }
     
     df = pd.DataFrame(usage_data)
@@ -544,20 +507,23 @@ def create_analytics_dashboard():
 # Voice input functionality
 def speech_to_text():
     """Convert speech to text using microphone input"""
-    recognizer = sr.Recognizer()
-    
-    with sr.Microphone() as source:
-        st.info("Listening... Speak now")
-        try:
-            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-            text = recognizer.recognize_google(audio)
-            return text
-        except sr.WaitTimeoutError:
-            return "No speech detected"
-        except sr.UnknownValueError:
-            return "Could not understand audio"
-        except Exception as e:
-            return f"Error: {str(e)}"
+    try:
+        recognizer = sr.Recognizer()
+        
+        with sr.Microphone() as source:
+            st.info("Listening... Speak now")
+            try:
+                audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+                text = recognizer.recognize_google(audio)
+                return text
+            except sr.WaitTimeoutError:
+                return "No speech detected"
+            except sr.UnknownValueError:
+                return "Could not understand audio"
+            except Exception as e:
+                return f"Error: {str(e)}"
+    except:
+        return "Microphone not available"
 
 # Text to speech functionality
 def text_to_speech(text):
@@ -572,45 +538,56 @@ def text_to_speech(text):
         st.error(f"Text-to-speech error: {str(e)}")
         return None
 
+# Simple semantic search (replacement for vector DB)
+def semantic_search(query, knowledge_base):
+    """Simple semantic search implementation"""
+    results = []
+    for doc_id, doc_info in knowledge_base.items():
+        content = doc_info['content'].lower()
+        if query.lower() in content:
+            results.append({
+                'id': doc_id,
+                'name': doc_info['name'],
+                'content': content[:200] + '...' if len(content) > 200 else content
+            })
+    return results
+
 # Main application
 def main():
     # Initialize session state
     init_session_state()
-    
-    # Setup authentication
-    authenticator = setup_authentication()
     
     # Check if user is authenticated
     if not st.session_state.authenticated:
         # Login form
         st.title("Enterprise AI Assistant Login")
         
-        try:
-            name, authentication_status, username = authenticator.login('Login', 'main')
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submit_button = st.form_submit_button("Login")
             
-            if authentication_status:
-                st.session_state.authenticated = True
-                st.session_state.user_id = username
-                st.rerun()
-            elif authentication_status == False:
-                st.error('Username/password is incorrect')
-            elif authentication_status == None:
-                st.warning('Please enter your username and password')
-        except Exception as e:
-            st.error(f"Authentication error: {str(e)}")
+            if submit_button:
+                authenticated, name = check_credentials(username, password)
+                if authenticated:
+                    st.session_state.authenticated = True
+                    st.session_state.user_id = username
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password")
         
         return
     
     # User is authenticated, show the main app
-    authenticator.logout('Logout', 'sidebar')
+    st.sidebar.button("Logout", on_click=lambda: setattr(st.session_state, 'authenticated', False))
     
-    # Initialize vector database
-    if st.session_state.vector_db is None:
-        st.session_state.vector_db = setup_vector_db()
+    # Initialize OpenAI client
+    if st.session_state.client is None:
+        setup_openai()
     
     # Header
     st.markdown('<h1 class="main-header">Enterprise AI Assistant 2025</h1>', unsafe_allow_html=True)
-    st.caption(f"Welcome, {authenticator.credentials['usernames'][st.session_state.user_id]['name']}! • v6.0.0")
+    st.caption(f"Welcome, {st.session_state.user_id}! • v6.0.0")
     
     # Sidebar
     with st.sidebar:
@@ -633,20 +610,17 @@ def main():
         # Model Selection - Updated with latest 2025 models
         st.selectbox(
             "AI Model",
-            ["gpt-5", "gpt-4.5", "gpt-4o", "o3-large", "o3-medium", "o3-mini"],
-            index=2,  # Default to GPT-4o
+            ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],  # Using available models
+            index=0,  # Default to GPT-4o
             key="model",
             help="Select which AI model to use"
         )
         
         # Display model info
         model_info = {
-            "gpt-5": "Latest flagship model with 1M context window and advanced reasoning (2025)",
-            "gpt-4.5": "Enhanced version with 128K context and improved efficiency (2024)",
             "gpt-4o": "Optimized model with balanced speed and intelligence (2024)",
-            "o3-large": "High-performance model in the o3 series for complex tasks",
-            "o3-medium": "Balanced model in the o3 series for general use",
-            "o3-mini": "Fast and efficient model in the o3 series for simple tasks"
+            "gpt-4-turbo": "High-performance model for complex tasks",
+            "gpt-3.5-turbo": "Fast and efficient model for simple tasks"
         }
         
         st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]}")
@@ -683,9 +657,11 @@ def main():
         st.markdown("### 🎤 Voice Input")
         if st.button("Start Voice Input"):
             voice_text = speech_to_text()
-            if voice_text and voice_text not in ["No speech detected", "Could not understand audio"]:
+            if voice_text and voice_text not in ["No speech detected", "Could not understand audio", "Microphone not available"]:
                 st.session_state.messages.append({"role": "user", "content": voice_text, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
                 st.rerun()
+            elif voice_text == "Microphone not available":
+                st.warning("Microphone access not available in this environment")
         
         # Conversation management
         st.markdown("---")
@@ -735,7 +711,7 @@ def main():
         Enterprise AI Assistant 2025 leverages the latest GPT models to provide professional assistance with up-to-date information.
         
         **Key Features:**
-        - GPT-5, GPT-4.5, GPT-4o, and o3 series support
+        - GPT-4o, GPT-4-turbo, and GPT-3.5-turbo support
         - 2025 knowledge context
         - Web search integration
         - Document processing
@@ -755,7 +731,7 @@ def main():
             
             # Model comparison
             st.markdown("---")
-            st.subheader("Latest Model Comparison (2025)")
+            st.subheader("Latest Model Comparison")
             model_df = create_model_comparison()
             st.dataframe(model_df, use_container_width=True, hide_index=True)
             
@@ -923,23 +899,12 @@ def main():
                     content = process_document(kb_upload)
                     doc_id = str(uuid.uuid4())
                     
-                    # Store in session state (in real app, would use proper database)
+                    # Store in session state
                     st.session_state.knowledge_base[doc_id] = {
                         "name": kb_upload.name,
                         "content": content,
                         "upload_date": datetime.now().strftime("%Y-%m-%d %H:%M")
                     }
-                    
-                    # Also add to vector database if available
-                    if st.session_state.vector_db:
-                        try:
-                            st.session_state.vector_db.add(
-                                documents=[content],
-                                metadatas=[{"name": kb_upload.name, "type": "document"}],
-                                ids=[doc_id]
-                            )
-                        except Exception as e:
-                            st.error(f"Error adding to vector database: {str(e)}")
                     
                     st.success(f"Added {kb_upload.name} to knowledge base!")
         
@@ -954,18 +919,20 @@ def main():
                         st.write(f"{len(doc_info['content'])} characters")
                         if st.button("Delete", key=f"del_{doc_id}"):
                             del st.session_state.knowledge_base[doc_id]
-                            if st.session_state.vector_db:
-                                try:
-                                    st.session_state.vector_db.delete(ids=[doc_id])
-                                except:
-                                    pass
                             st.rerun()
+                
+                # Search functionality
+                st.subheader("Search Knowledge Base")
+                search_query = st.text_input("Enter search terms")
+                if search_query:
+                    results = semantic_search(search_query, st.session_state.knowledge_base)
+                    if results:
+                        st.write(f"Found {len(results)} results:")
+                        for result in results:
+                            with st.expander(result['name']):
+                                st.write(result['content'])
+                    else:
+                        st.info("No results found")
 
 if __name__ == "__main__":
-    # Add numpy import for analytics (not needed in production)
-    try:
-        import numpy as np
-    except:
-        pass
-        
     main()
