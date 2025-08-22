@@ -349,11 +349,11 @@ def summarize_conversation(messages, conversation_id):
         return None
 
 # Add robust error handling for API limits
-def generate_response_with_retry(messages, model, max_retries=3):
+def generate_response_with_retry(messages, model, use_web_search=False, document_context=None, image_context=None, max_retries=3):
     """Generate response with retry logic for rate limits"""
     for attempt in range(max_retries):
         try:
-            return generate_response(messages, model)
+            return generate_response(messages, model, use_web_search, document_context, image_context)
         except Exception as e:
             if "rate limit" in str(e).lower() and attempt < max_retries - 1:
                 wait_time = 2 ** attempt  # Exponential backoff
@@ -815,10 +815,12 @@ def main():
                 message_placeholder = st.empty()
                 full_response = ""
                 
-                # Generate response
+                # Generate response - FIXED THE SYNTAX ERROR HERE
                 with st.spinner(f"Analyzing with {st.session_state.model}..."):
+                    # Corrected the list comprehension syntax
+                    messages_for_api = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
                     full_response = generate_response_with_retry(
-                        [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
+                        messages_for_api,
                         st.session_state.model,
                         use_web_search,
                         document_context,
