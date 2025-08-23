@@ -782,7 +782,7 @@ def main():
             st.session_state.client = setup_openai(api_key)
             if st.session_state.client:
                 st.success("✅ API Key configured successfully!")
-            st.experimental_rerun()
+            st.rerun()
         
         if st.session_state.client:
             st.markdown("### AI Model Parameters")
