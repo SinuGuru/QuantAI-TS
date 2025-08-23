@@ -326,6 +326,8 @@ def init_session_state():
         "max_tokens": 1000,
         "knowledge_base": {},
         "current_tool": None,
+        "document_uploaded": False,
+        "image_uploaded": False
     }
     for key, value in default_state.items():
         if key not in st.session_state:
@@ -361,7 +363,7 @@ def setup_openai(api_key: str):
         client.models.list()
         return client
     except Exception as e:
-        st.error(f"Failed to initialize OpenAI client. Check your API key. Error: {e}")
+        st.error(f"❌ Failed to initialize OpenAI client. Please check your API key. Error: {e}")
         return None
 
 # --- 4. DATA PROCESSING AND API CALLS ---
@@ -385,9 +387,8 @@ def process_document(uploaded_file) -> str:
                 text += page.extract_text() or "" + "\n"
         elif uploaded_file.type == "text/plain":
             text = uploaded_file.read().decode("utf-8")
-        elif uploaded_file.type.startswith("image/"):
-            text = f"[Image file: {uploaded_file.name}]"
     except Exception as e:
+        st.error(f"Error processing document: {e}")
         return f"Error processing document: {e}"
     return text
 
@@ -395,6 +396,8 @@ def process_document(uploaded_file) -> str:
 def process_image(uploaded_image) -> str:
     """Uses OpenAI's vision capabilities to describe an image."""
     try:
+        if not st.session_state.client:
+            return "OpenAI client not configured. Cannot process image."
         base64_image = base64.b64encode(uploaded_image.read()).decode('utf-8')
         response = st.session_state.client.chat.completions.create(
             model="gpt-4o",
@@ -408,6 +411,7 @@ def process_image(uploaded_image) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
+        st.error(f"Error processing image: {e}")
         return f"Error processing image: {e}"
 
 def estimate_tokens(text: str, model: str) -> int:
@@ -438,7 +442,7 @@ def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
 def generate_response(messages: List[Dict], model: str, use_web_search: bool, doc_context: str | None, img_context: str | None) -> str:
     """Generates an AI response with enhanced context."""
     if not st.session_state.client:
-        return "Please provide a valid OpenAI API key in the sidebar."
+        return "Please provide a valid OpenAI API key in the Settings tab."
     
     current_date = datetime.now().strftime("%Y-%m-%d")
     system_content = (f"""You are Enterprise AI Assistant 2025, a professional assistant with knowledge up to December 2025.
@@ -451,9 +455,9 @@ def generate_response(messages: List[Dict], model: str, use_web_search: bool, do
     
     Always provide accurate, up-to-date information. Be professional and concise.""")
     
-    if doc_context:
+    if doc_context and "Error processing document" not in doc_context:
         system_content += f"\n\nDocument Context:\n{doc_context}\n"
-    if img_context:
+    if img_context and "Error processing image" not in img_context:
         system_content += f"\n\nImage Context:\n{img_context}\n"
     if use_web_search and messages and messages[-1]["role"] == "user":
         search_results = web_search(messages[-1]["content"])
@@ -627,36 +631,7 @@ def main():
             
     # Sidebar Configuration
     with st.sidebar:
-        st.markdown("### 🔧 Configuration")
-        if not st.session_state.api_key:
-            api_key = st.text_input("OpenAI API Key", type="password", placeholder="Paste your API key here")
-            if api_key:
-                st.session_state.api_key = api_key
-                st.session_state.client = setup_openai(api_key)
-                if st.session_state.client:
-                    st.success("✓ API Key Configured")
-        
-        if st.session_state.api_key:
-            st.selectbox("AI Model", ["gpt-5", "gpt-4.5", "gpt-4.1", "gpt-4o"], key="model")
-            st.slider("Temperature", 0.0, 1.0, 0.7, key="temperature")
-            st.slider("Max Response Length", 100, 4000, 1000, key="max_tokens")
-
-        st.markdown("---")
-        st.markdown("### 🌟 Features")
-        use_web_search = st.checkbox("Enable Web Search", value=True)
-        document_upload = st.file_uploader("Upload Document", type=["pdf", "txt"], help="Provide context from documents")
-        image_upload = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"], help="Analyze images with AI vision")
-        
-        if st.button("Start Voice Input", use_container_width=True):
-            voice_text = speech_to_text()
-            if voice_text not in ["No speech detected", "Could not understand audio", "Error with speech recognition: "]:
-                st.session_state.messages.append({"role": "user", "content": voice_text, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
-                st.rerun()
-            else:
-                st.warning(voice_text)
-
-        st.markdown("---")
-        st.markdown("### 💬 Conversation")
+        st.markdown("### 💬 Conversation Tools")
         st.session_state.conversation_name = st.text_input("Conversation Name", value=st.session_state.conversation_name)
         
         col1, col2 = st.columns(2)
@@ -664,6 +639,8 @@ def main():
             if st.button("🆕 New Chat", use_container_width=True):
                 st.session_state.messages = [{"role": "assistant", "content": "Hello! I'm your assistant. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")}]
                 st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                st.session_state.document_uploaded = False
+                st.session_state.image_uploaded = False
                 st.rerun()
         with col2:
             if st.button("🗑️ Clear", use_container_width=True):
@@ -673,54 +650,92 @@ def main():
         st.markdown("---")
         st.markdown("### 📊 Usage")
         display_usage_stats()
+        
+        st.markdown("---")
+        st.markdown("### 🆘 Help & Information")
+        with st.expander("FAQ"):
+            st.info("""
+            **What is NeuraLink AI?**
+            This is an Enterprise AI assistant for internal use, designed to help with data analysis, code review, and general Q&A.
+            
+            **How do I get an API Key?**
+            You need a valid OpenAI API key from your administrator. Paste it in the Settings tab.
+            """)
 
     # --- Tabs for Main Content ---
-    chat_tab, workflows_tab, analytics_tab = st.tabs(["💬 Chat", "🛠️ Workflows", "📈 Analytics"])
+    chat_tab, workflows_tab, analytics_tab, settings_tab = st.tabs(["💬 Chat", "🛠️ Workflows", "📈 Analytics", "⚙️ Settings"])
 
     with chat_tab:
         if not st.session_state.api_key or not st.session_state.client:
-            st.warning("⚠️ Please enter your OpenAI API key in the sidebar to begin.")
+            st.warning("⚠️ Please enter your OpenAI API key in the **Settings** tab to begin.")
             st.info("ℹ️ You can find your API key at [OpenAI's platform](https://platform.openai.com/api-keys).")
-            st.markdown("---")
-            st.markdown('<div class="subheader">Latest Model Comparison</div>', unsafe_allow_html=True)
-            st.dataframe(create_model_comparison(), use_container_width=True, hide_index=True)
-            return
+        
+        st.markdown(f'<div class="subheader">Conversation: {st.session_state.conversation_name} <span class="model-badge">{st.session_state.model}</span></div>', unsafe_allow_html=True)
+        
+        for message in st.session_state.messages:
+            render_chat_message(message["role"], message["content"], message["timestamp"])
+            if message["role"] == "assistant":
+                audio_bytes = text_to_speech(message["content"])
+                if audio_bytes:
+                    st.audio(audio_bytes, format="audio/mp3")
 
-        col1, col2 = st.columns([2, 1])
+        # Contextual Quick Actions and Uploaders
+        st.markdown('<div class="subheader" style="margin-top: 2rem;">🚀 Quick Actions & Context</div>', unsafe_allow_html=True)
+        col1, col2, col3, col4 = st.columns(4)
+        
         with col1:
-            st.markdown(f'<div class="subheader">Conversation: {st.session_state.conversation_name} <span class="model-badge">{st.session_state.model}</span></div>', unsafe_allow_html=True)
-            for message in st.session_state.messages:
-                render_chat_message(message["role"], message["content"], message["timestamp"])
-                if message["role"] == "assistant":
-                    audio_bytes = text_to_speech(message["content"])
-                    if audio_bytes:
-                        st.audio(audio_bytes, format="audio/mp3")
-
-        with col2:
-            st.markdown('<div class="subheader">🚀 Quick Actions</div>', unsafe_allow_html=True)
-            if st.button("📊 Market Analysis Summary", use_container_width=True):
-                st.session_state.messages.append({"role": "user", "content": "Provide a brief market analysis summary for Q2 2025 focusing on tech sector trends.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+            quick_action_options = [
+                "Select a quick action...",
+                "Generate a market analysis summary for 2025",
+                "Explain quantum computing in simple terms",
+                "Analyze the attached document",
+                "Review my code for best practices"
+            ]
+            selected_action = st.selectbox("Quick Actions", quick_action_options, label_visibility="collapsed")
+            if selected_action != "Select a quick action...":
+                st.session_state.messages.append({"role": "user", "content": selected_action, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
                 st.rerun()
+        
+        with col2:
+            document_upload = st.file_uploader("Document", type=["pdf", "txt"], label_visibility="collapsed", help="Provide context from documents")
+            if document_upload:
+                st.session_state.document_uploaded = True
+                st.success("✅ Document ready!")
 
-    # Chat input at the bottom of the screen
-    user_prompt = st.chat_input("Type your message here...")
-    if user_prompt:
-        st.session_state.messages.append({"role": "user", "content": user_prompt, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+        with col3:
+            image_upload = st.file_uploader("Image", type=["png", "jpg", "jpeg"], label_visibility="collapsed", help="Analyze images with AI vision")
+            if image_upload:
+                st.session_state.image_uploaded = True
+                st.success("✅ Image ready!")
+
+        with col4:
+            if st.button("🎙️ Voice Input", use_container_width=True):
+                voice_text = speech_to_text()
+                if voice_text not in ["No speech detected", "Could not understand audio", "Error with speech recognition: "]:
+                    st.session_state.messages.append({"role": "user", "content": voice_text, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+                    st.rerun()
+                else:
+                    st.warning(voice_text)
         
-        doc_context = process_document(document_upload) if document_upload else None
-        img_context = process_image(image_upload) if image_upload else None
-        
-        with st.spinner(f"Analyzing with {st.session_state.model}..."):
-            response = generate_response(
-                st.session_state.messages,
-                st.session_state.model,
-                use_web_search,
-                doc_context,
-                img_context
-            )
-        
-        st.session_state.messages.append({"role": "assistant", "content": response, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
-        st.rerun()
+        # Chat input at the bottom of the screen
+        user_prompt = st.chat_input("Type your message here...")
+        if user_prompt:
+            st.session_state.messages.append({"role": "user", "content": user_prompt, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+            
+            doc_context = process_document(document_upload) if document_upload else None
+            img_context = process_image(image_upload) if image_upload else None
+            
+            with st.spinner(f"Analyzing with {st.session_state.model}..."):
+                response = generate_response(
+                    st.session_state.messages,
+                    st.session_state.model,
+                    st.session_state.get("use_web_search", True),
+                    doc_context,
+                    img_context
+                )
+            
+            st.session_state.messages.append({"role": "assistant", "content": response, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+            st.rerun()
 
     with workflows_tab:
         if st.session_state.current_tool:
@@ -755,6 +770,46 @@ def main():
         with col2:
             fig_requests = px.line(df_usage, x='Date', y='Requests', title='Daily API Requests')
             st.plotly_chart(fig_requests, use_container_width=True)
+
+    with settings_tab:
+        st.markdown('<div class="subheader">⚙️ Application Settings</div>', unsafe_allow_html=True)
+        
+        st.markdown("### OpenAI API Configuration")
+        api_key = st.text_input("OpenAI API Key", type="password", placeholder="Paste your API key here", help="Your personal or enterprise API key to connect to OpenAI services.")
+        
+        if api_key and api_key != st.session_state.api_key:
+            st.session_state.api_key = api_key
+            st.session_state.client = setup_openai(api_key)
+            if st.session_state.client:
+                st.success("✅ API Key configured successfully!")
+            st.experimental_rerun()
+        
+        if st.session_state.client:
+            st.markdown("### AI Model Parameters")
+            st.selectbox(
+                "AI Model",
+                ["gpt-5", "gpt-4.5", "gpt-4.1", "gpt-4o"],
+                key="model",
+                help="Select the AI model for your conversations. Newer models offer better performance but may have higher costs."
+            )
+            st.slider(
+                "Temperature",
+                0.0, 1.0, 0.7,
+                help="Controls the randomness of the response. Lower values produce more deterministic results, while higher values lead to more creative and varied output.",
+                key="temperature"
+            )
+            st.slider(
+                "Max Response Length",
+                100, 4000, 1000,
+                help="The maximum number of tokens (words) the AI can generate in a single response.",
+                key="max_tokens"
+            )
+            st.checkbox(
+                "Enable Web Search",
+                value=True,
+                help="Allows the AI to perform a simulated web search to get more up-to-date information.",
+                key="use_web_search"
+            )
 
 if __name__ == "__main__":
     main()
