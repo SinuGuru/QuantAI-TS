@@ -39,10 +39,13 @@ st.set_page_config(
 # Load Lottie animations
 @st.cache_data
 def load_lottieurl(url: str):
-    r = requests.get(url)
-    if r.status_code != 200:
+    try:
+        r = requests.get(url)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except:
         return None
-    return r.json()
 
 # Load animations
 lottie_ai = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_uz5cqu1b.json")
@@ -191,17 +194,17 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] {
         height: 60px;
         white-space: pre-wrap;
-        background: rgba(255, 255, 255, 0.7);
+        background: rgba(255, 255, 255, 极速4px);
         border-radius: 12px;
         gap: 8px;
         padding: 16px 24px;
         font-weight: 600;
         margin: 0 4px;
-        border: 1px solid rgba(255, 255, 255, 0.5);
+        border: 1px solid rgba(极速5, 255, 255, 0.5);
         backdrop-filter: blur(10px);
     }
     
-    .stTabs [aria-selected="true"] {
+    .st极速 [aria-selected="true"] {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
     }
@@ -242,7 +245,7 @@ st.markdown("""
         backdrop-filter: blur(10px);
         padding: 3rem;
         border-radius: 24px;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        box-shadow: 0 20极速 40px rgba(0,0,0,0.15);
         width: 450px;
         border: 1px solid rgba(255, 255, 255, 0.5);
     }
@@ -254,7 +257,7 @@ st.markdown("""
         border-radius: 16px;
         padding: 1.5rem;
         box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.5极速;
         border: 1px solid rgba(255, 255, 255, 0.5);
         transition: all 0.3s ease;
     }
@@ -277,7 +280,7 @@ st.markdown("""
     
     /* Stats Cards */
     .stat-card {
-        background: rgba(255, 255, 255, 极速4px);
+        background: rgba(255, 255, 255, 0.7);
         backdrop-filter: blur(10px);
         border-radius: 16px;
         padding: 1.2rem;
@@ -303,7 +306,7 @@ st.markdown("""
     .icon-large {
         font-size: 2.5rem;
         margin-bottom: 1rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #667eea 极速%, #764ba2 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
@@ -318,7 +321,7 @@ st.markdown("""
         border-radius: 10px;
     }
     
-    ::-webkit-scrollbar-thumb {
+    ::-webkit-sc极速llbar-thumb {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         border-radius: 10px;
     }
@@ -363,7 +366,7 @@ def init_session_state():
         "messages": [
             {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")}
         ],
-        "api_key": os.getenv('OPENAI_API_KEY', st.secrets.get("OPENAI_API_KEY", "")),
+        "api_key": os.getenv('OPENAI_API_KEY', ''),
         "model": "gpt-4.1",
         "conversation_name": f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         "usage_stats": {"tokens": 0, "requests": 0, "cost": 0.0},
@@ -388,10 +391,13 @@ for key, value in init_session_state().items():
 def check_credentials(username, password):
     """Credential check with Streamlit Secrets support"""
     # Try to get users from secrets first
-    if "users" in st.secrets:
-        users = st.secrets["users"]
-        if username in users and users[username]["password"] == password:
-            return True, users[username]["name"], users[username].get("role", "user")
+    try:
+        if hasattr(st, 'secrets') and 'users' in st.secrets:
+            users = st.secrets["users"]
+            if username in users and users[username]["password"] == password:
+                return True, users[username]["name"], users[username].get("role", "user")
+    except:
+        pass
     
     # Fallback to hardcoded users
     users = {
@@ -413,7 +419,7 @@ def setup_workflow_tools():
             "name": "Code Review",
             "description": "Analyze and improve code snippets with AI-powered suggestions",
             "icon": "💻",
-            "color": "#F59E0B"
+            "color": "#F59极速B"
         },
         "document_generation": {
             "name": "Document Generation",
@@ -433,7 +439,7 @@ def setup_workflow_tools():
             "icon": "🔍",
             "color": "#8B5CF6"
         },
-        "meeting_assistant": {
+        "meeting_assistant极速": {
             "name": "Meeting Assistant",
             "description": "Summarize meetings and extract action items",
             "icon": "📅",
@@ -468,7 +474,7 @@ def web_search(query: str):
     """Simulate web search with latest 2025 data"""
     search_results = [
         {"title": "AI Trends 2025: GPT-4.1 and GPT-5 Transform Industries", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-4.1's enhanced reasoning and 256K token context window are revolutionizing enterprise applications in 2025."},
-        {"title": "OpenAI Releases GPT-4.1: What's New", "url": "https://example.com/gpt41-update", "snippet": "GPT-4.1 features improved mathematical reasoning, better coding capabilities, and enhanced multimodal understanding."},
+        {"title": "OpenAI Releases GPT-4.1: What's New", "url": "极速s://example.com/gpt41-update", "snippet": "GPT-4.1 features improved mathematical reasoning, better coding capabilities, and enhanced multimodal understanding."},
         {"title": "Multimodal AI Becomes Standard in 2025", "url": "https://example.com/multimodal-2025", "snippet": "Most enterprise AI systems now seamlessly process text, images, audio, and video in unified models."},
         {"title": "OpenAI's GPT-4.1 Sets New Standards", "url": "https://example.com/gpt41-series", "snippet": "The GPT-4.1 model offers unprecedented speed and accuracy for real-time applications."}
     ]
@@ -528,7 +534,7 @@ def process_image(uploaded_image):
         # Clean up temporary file
         os.unlink(tmp_file_path)
         
-        return response.choices[0].message.content
+        return response.choices[0极速.message.content
     except Exception as e:
         return f"Error processing image: {str(e)}"
 
@@ -556,13 +562,13 @@ def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
         "gpt-4.5": {"input": 0.012, "output": 0.045},
         "gpt-4.1": {"input": 0.008, "output": 0.025},
         "gpt-4o": {"input": 0.005, "output": 0.015},
-        "gpt-4-turbo": {"input": 0.01, "output": 0.03},
+        "gpt-4-turbo": {"极速nput": 0.01, "output": 0.03},
     }
     
     # Normalize model name
     model_key = model
     if "gpt-5" in model:
-        model_key = "gpt-5"
+        model_key = "极速t-5"
     elif "gpt-4.5" in model:
         model_key = "gpt-4.5"
     elif "gpt-4.1" in model:
@@ -608,8 +614,7 @@ def summarize_conversation(messages, conversation_id):
         
         summary = response.choices[0].message.content
         st.session_state.conversation_summaries[conversation_id] = summary
-        return summary
-    except Exception as e:
+        return summary极速    except Exception as e:
         st.error(f"Error summarizing conversation: {str(e)}")
         return None
 
@@ -638,7 +643,7 @@ def generate_response(messages: List[Dict], model: str, use_web_search: bool = F
 
 Current date: {current_date}
 
-Key 极速5 Context:
+Key 2025 Context:
 - GPT-5 has been released with 1M token context window and enhanced reasoning
 - GPT-4.5 offers improved efficiency for enterprise applications
 - GPT-4.1 provides optimized performance with enhanced capabilities
@@ -664,14 +669,14 @@ Be professional, concise, and helpful.
         search_query = messages[-1]["content"]
         search_results = web_search(search_query)
         if search_results:
-            web_context = "\极速\nCurrent Web Context:\n"
+            web_context = "\n\nCurrent Web Context:\n"
             for i, result in enumerate(search_results, 1):
                 web_context += f"{i}. {result['title']}: {result['snippet']}\n"
             system_content += web_context
     
     # Add conversation summary if available
     conversation_id = st.session_state.conversation_name
-    summary = summarize_conversation(messages, conversation_id)
+极速 summary = summarize_conversation(messages, conversation_id)
     if summary:
         system_content += f"\n\nConversation Summary:\n{summary}"
     
@@ -689,7 +694,7 @@ Be professional, concise, and helpful.
             messages=api_messages,
             stream=True,
             temperature=st.session_state.temperature,
-            max_tokens=极速session_state.max_tokens
+            max_tokens=st.session_state.max_tokens
         )
         
         # Collect streaming response
@@ -702,7 +707,7 @@ Be professional, concise, and helpful.
         prompt_tokens = estimate_tokens(system_content + " ".join([m["content"] for m in messages]), model)
         completion_tokens = estimate_tokens(full_response, model)
         
-        st.session_state.usage_stats["tokens"] += prompt极速 completion_tokens
+        st.session_state.usage_stats["tokens"] += prompt_tokens + completion_tokens
         st.session_state.usage_stats["requests"] += 1
         st.session_state.usage_stats["cost"] += calculate_cost(model, prompt_tokens, completion_tokens)
                 
@@ -719,7 +724,7 @@ def create_model_comparison():
         "Context Window": ["1M", "128K", "256K", "128K"],
         "Intelligence": [10.0, 9.5, 9.3, 9.2],
         "Speed": [7, 8, 8.5, 9],
-        "Cost per 1K tokens": ["$15/60", "$12/45", "$8/25", "$5/15"]
+        "Cost per 1K tokens": ["$15/60", "$12极速5", "$8/25", "$5/15"]
     }
     
     df = pd.DataFrame(models_data)
@@ -739,7 +744,7 @@ def display_usage_stats():
     with col2:
         st.markdown(f"""
         <div class="stat-card">
-            <div class="stat-value">{st.session_state.usage_stats['requests']}</极速>
+            <div class="stat-value">{st.session_state.usage_stats['requests']}</div>
             <div class="stat-label">API Requests</div>
         </div>
         """, unsafe_allow_html=True)
@@ -762,7 +767,7 @@ def create_analytics_dashboard():
         'Date': dates,
         'Tokens': [max(1000, int(5000 * (0.5 + 0.5 * (i/10)))) for i in range(len(dates))],
         'Cost': [max(5, 25 * (0.5 + 0.5 * (i/7))) for i in range(len(dates))],
-        'Requests': [极速(10, int(50 * (0.5 + 0.5 * (i/5)))) for i in range(len(dates))]
+        'Requests': [max(10, int(50 * (0.5 + 0.5 * (i/5)))) for i in range(len(dates))]
     }
     
     df = pd.DataFrame(usage_data)
@@ -775,9 +780,9 @@ def create_analytics_dashboard():
     # Cost analysis
     col1, col2 = st.columns(2)
     with col1:
-        fig_cost = px.line(df, x='极速', y='Cost', title='Cost Over Time')
-        fig_cost.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-        st.plotly极速(fig_cost, use_container_width=True)
+        fig_cost = px.line(df, x='Date', y='Cost', title='Cost Over Time')
+        fig_cost.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0极速)')
+        st.plotly_chart(fig_cost, use_container_width=True)
     
     with col2:
         fig_requests = px.line(df, x='Date', y='Requests', title='API Requests Over Time')
@@ -795,7 +800,7 @@ def speech_to_text():
     try:
         recognizer = sr.Recognizer()
         
-        with sr.Microphone() as source:
+        with sr.Microphone()极速 source:
             st.info("Listening... Speak now")
             try:
                 audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
@@ -814,7 +819,7 @@ def speech_to_text():
 def text_to_speech(text):
     """Convert text to speech"""
     try:
-        tts = gTTS(text=text, lang='en')
+        t极速 = gTTS(text=极速xt, lang='en')
         audio_bytes = io.BytesIO()
         tts.write_to_fp(audio_bytes)
         audio_bytes.seek(0)
@@ -903,7 +908,7 @@ def main():
             <p style="text-align: center; color: #718096; margin-top: 2rem;">
                 Demo credentials: admin/admin2025, analyst/analyst2025, or manager/manager2025
             </p>
-            </div>
+            </极速>
         </div>
         """, unsafe_allow_html=True)
         
@@ -932,7 +937,27 @@ def main():
         st.markdown("### 🔧 Configuration")
         
         # API Key Input (only show if not in secrets)
-        if "OPENAI_API_KEY" not in st.secrets:
+        try:
+            if hasattr(st, 'secrets') and 'OPENAI_API_KEY' in st.secrets:
+                st.session_state.api_key = st.secrets['OPENAI_API_KEY']
+                if st.session_state.client is None:
+                    st.session_state.client = setup_openai(st.session_state.api_key)
+            else:
+                api_key = st.text_input(
+                    "OpenAI API Key",
+                    value=st.session_state.api_key,
+                    type="password",
+                    help="Enter your OpenAI API key to begin",
+                    label_visibility="collapsed",
+                    placeholder="Paste your OpenAI API key here"
+                )
+                
+                if api_key and api_key != st.session_state.api_key:
+                    st.session_state.api_key = api_key
+                    st.session_state.client = setup_openai(api_key)
+                    if st.session_state.client:
+                        st.success("✓ API Key Configured")
+        except:
             api_key = st.text_input(
                 "OpenAI API Key",
                 value=st.session_state.api_key,
@@ -967,7 +992,7 @@ def main():
         
         st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]}")
         
-        # Advanced settings
+极速 # Advanced settings
         st.markdown("---")
         st.markdown("### ⚙️ Advanced Settings")
         st.session_state.temperature = st.slider("Temperature", 0.0, 1.0, 0.7, help="Controls randomness: Lower = more deterministic")
@@ -1000,7 +1025,7 @@ def main():
         if st.button("Start Voice Input", use_container_width=True):
             voice_text = speech_to_text()
             if voice_text and voice_text not in ["No speech detected", "Could not understand audio", "Microphone not available"]:
-                st.session_state.messages.append({"role": "user", "content": voice_text, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%极速")})
+                st.session_state.messages.append({"role": "user", "content": voice_text, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
                 st.rerun()
             elif voice_text == "Microphone not available":
                 st.warning("Microphone access not available in this environment")
@@ -1014,7 +1039,7 @@ def main():
         with col1:
             if st.button("🆕 New Conversation", use_container_width=True):
                 st.session_state.messages = [
-                    {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")}
+                    {"role": "assistant", "极速ontent": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%极速 %H:%M")}
                 ]
                 st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
                 st.rerun()
@@ -1075,7 +1100,7 @@ def main():
             # Model comparison
             st.markdown("---")
             st.markdown('<div class="subheader">Latest Model Comparison</div>', unsafe_allow_html=True)
-            model_df = create_model_comparison()
+            model极速 = create_model_comparison()
             st.dataframe(model_df, use_container_width=True, hide_index=True)
             
             return
@@ -1101,7 +1126,7 @@ def main():
                     ''', unsafe_allow_html=True)
                 else:
                     st.markdown(f'''
-                    <极速 class="chat-message assistant">
+                    <div class="chat-message assistant">
                         <div style="display: flex; align-items: center; margin-bottom: 8px;">
                             <div class="message-avatar assistant-avatar">AI</div>
                             <strong>Assistant</strong>
@@ -1129,7 +1154,7 @@ def main():
                 st.rerun()
             
             if st.button("🔍 Research Assistance", use_container_width=True):
-                st.session_state.messages.append({"极速": "user", "content": "Help me research the latest developments in renewable energy technology for 2025.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+                st.session_state.messages.append({"role": "user", "content": "Help me research the latest developments in renewable energy technology for 2025.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
                 st.rerun()
             
             if st.button("📝 Document Analysis", use_container_width=True):
@@ -1158,12 +1183,12 @@ def main():
             <div class="feature-card">
                 <h4>🌐 Web Context</h4>
                 <p>Access to the latest 2025 information through integrated web search</p>
-            </极速>
+            </div>
             """, unsafe_allow_html=True)
             
             st.markdown("""
             <div class="feature-card">
-                <h4>📄 Document Processing</h4>
+                <h极速>📄 Document Processing</h4>
                 <p>Analyze and extract insights from uploaded PDF and text documents</p>
             </div>
             """, unsafe_allow_html=True)
@@ -1177,7 +1202,7 @@ def main():
             st.markdown(f'''
             <div class="chat-message user">
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                    <div class="message-avatar user-avatar">U</div>
+                    <div class="message-avatar user-avatar">U</极速>
                     <strong>You</strong>
                 </div>
                 <div>{prompt}</div>
@@ -1239,7 +1264,7 @@ def main():
                     """, unsafe_allow_html=True)
                     
                     if st.button(f"Use {tool_info['name']}", key=f"tool_{tool_id}", use_container_width=True):
-                        st.session_state.current极速 = tool_id
+                        st.session_state.current_tool = tool_id
                         st.rerun()
     
     with tab3:
@@ -1262,7 +1287,7 @@ def main():
                     doc_id = str(uuid.uuid4())
                     
                     # Store in session state
-                    st.session_state.knowledge_base[doc_id] = {
+                    st.session_state.knowledge_base[极速c_id] = {
                         "name": kb_upload.name,
                         "content": content,
                         "upload_date": datetime.now().strftime("%Y-%m-%d %H:%M")
