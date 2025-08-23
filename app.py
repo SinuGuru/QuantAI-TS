@@ -455,7 +455,7 @@ def main():
                 st.warning("Provide code to review.")
             else:
                 st.session_state.messages.append({"role": "user", "content": f"Please review this code:\n\n```{code_blob}```"})
-                st.experimental_rerun()
+                st.rerun()
 
         st.markdown("---")
         st.markdown("### Data Analysis")
