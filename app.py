@@ -455,7 +455,6 @@ def display_usage_stats():
     c.execute("SELECT SUM(tokens), SUM(requests), SUM(cost) FROM usage WHERE user_id = ?", (st.session_state.get("user_id"),))
     result = c.fetchone()
     
-    # Fix: Safely handle the case where a user has no usage data
     if result and result[0] is not None:
         total_tokens, total_requests, total_cost = result
     else:
@@ -522,15 +521,16 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    lottie_ai = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_uz5cqu1b.json")
-    lottie_robot = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_sk5h1kfn.json")
+    # Lottie animations are commented out to prevent network-related warnings
+    # lottie_ai = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_uz5cqu1b.json")
+    # lottie_robot = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_sk5h1kfn.json")
 
     if not st.session_state.get("authenticated", False):
         st.markdown('<div style="display:flex;justify-content:center;align-items:center;height:80vh">', unsafe_allow_html=True)
         with st.container():
             st.markdown('<h1 style="text-align:center;">🤖 NeuraLink AI — Sign in</h1>', unsafe_allow_html=True)
-            if lottie_ai:
-                st_lottie(lottie_ai, height=180)
+            # if lottie_ai:
+            #     st_lottie(lottie_ai, height=180)
             with st.form("auth_form"):
                 mode = st.radio("Mode", ["Login", "Register"])
                 username = st.text_input("Username", key="auth_username")
@@ -593,8 +593,9 @@ def main():
         st.markdown(f'<div class="main-header">NeuraLink AI Assistant</div>', unsafe_allow_html=True)
         st.caption(f"Welcome, {st.session_state.username} • v7.0.0")
     with col2:
-        if lottie_robot:
-            st_lottie(lottie_robot, height=80)
+        # if lottie_robot:
+        #     st_lottie(lottie_robot, height=80)
+        pass
 
     tab_chat, tab_tools, tab_analytics, tab_settings = st.tabs(["Chat", "Workflows", "Analytics", "Settings"])
 
