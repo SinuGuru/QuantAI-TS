@@ -294,7 +294,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_current_datetime",
-            "description": "Returns the current date and time. Useful for time-sensitive questions.",
+            "description": "Returns the current date and time.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -592,7 +592,7 @@ def main():
             st.markdown("### AI Model Parameters")
             st.selectbox(
                 "AI Model",
-                ["GPT-5", "GPT-5 Pro", "GPT-5 mini", "GPT-4o"],
+                ["GPT-5", "GPT-5 Pro", "GPT-5 mini", "GPT-4.1", "GPT-4.1 mini", "GPT-4.1 nano", "GPT-4o"],
                 key="model",
                 help="Select the AI model for your conversations. Newer models offer better performance but may have higher costs."
             )
@@ -611,4 +611,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
