@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from streamlit_lottie import st_lottie
 import re
+from openai.types.chat import ChatCompletionMessage
 
 # --- CONFIG / CONSTANTS ---
 CONVERSATIONS_DIR = "conversations"
@@ -209,24 +210,20 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
         response_obj = client.chat.completions.create(
             model=model,
             messages=api_messages,
-            tools=[{"type": "function", "function": f} for f in FUNCTIONS], # Use the correct 'tools' parameter
-            tool_choice="auto", # Use the correct 'tool_choice' parameter
+            tools=[{"type": "function", "function": f} for f in FUNCTIONS],
+            tool_choice="auto",
             temperature=st.session_state.get("temperature", 0.7),
         )
         st.session_state.usage_stats["requests"] += 1
         
         choice = response_obj.choices[0]
-        message = choice.message # assistant message (may include tool_calls)
+        message = choice.message
         tool_calls = message.tool_calls
         
-        # If model requested a tool (function):
         if tool_calls:
-            # Append the assistant message that requested the tool to the session messages
-            # Note: The raw message object from the API is now a ToolCall object.
-            # We must convert it to a dictionary for Streamlit's chat history.
-            st.session_state.messages.append(message)
+            # Convert the assistant's message with tool_calls to a dictionary
+            st.session_state.messages.append(message.model_dump())
 
-            # Re-call the model with the tool output
             for tool_call in tool_calls:
                 function_name = tool_call.function.name
                 arguments_str = tool_call.function.arguments or "{}"
@@ -236,7 +233,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                 except json.JSONDecodeError:
                     args = {"raw_arguments": arguments_str}
 
-                # Call the corresponding local tool function
                 tool_func = LOCAL_TOOL_MAP.get(function_name)
                 if not tool_func:
                     func_result = f"Error: Tool '{function_name}' not implemented."
@@ -246,7 +242,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                     except Exception as e:
                         func_result = f"Error when executing tool '{function_name}': {e}"
 
-                # Append function result as a message with role "tool"
                 st.session_state.messages.append({
                     "tool_call_id": tool_call.id,
                     "role": "tool",
@@ -254,7 +249,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                     "content": func_result
                 })
 
-            # Re-call the model to produce a final assistant response using the tool output
             api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.messages[-MAX_CONTEXT_MESSAGES:]
             response2 = client.chat.completions.create(
                 model=model,
@@ -264,11 +258,12 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
             st.session_state.usage_stats["requests"] += 1
             final_choice = response2.choices[0]
             final_message = final_choice.message
-            st.session_state.messages.append(final_message) # Append final response
+            # Convert the final message to a dictionary before appending
+            st.session_state.messages.append(final_message.model_dump()) 
             return final_message.content or ""
         else:
-            # Normal assistant reply (no function required)
-            st.session_state.messages.append(message)
+            # Convert the normal message to a dictionary before appending
+            st.session_state.messages.append(message.model_dump())
             return message.content or ""
     except openai.APIError as e:
         return f"OpenAI API error: {e}"
@@ -280,17 +275,26 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
 def render_chat_messages():
     """Render all messages in the session with better formatting for code and JSON."""
     for msg in st.session_state.messages:
+        # Check if the message is a dictionary before using .get()
+        if isinstance(msg, ChatCompletionMessage):
+            # If a raw object somehow slipped through, convert it on the fly
+            msg = msg.model_dump()
+
+        if not isinstance(msg, dict):
+            # Skip invalid messages to prevent the app from crashing
+            st.warning(f"Skipping invalid message format: {type(msg)}")
+            continue
+
         role = msg.get("role", "user")
         with st.chat_message(role):
             content = msg.get("content", "")
-            # If assistant included tool_calls, render them
             if role == "assistant" and msg.get("tool_calls"):
-                for tc in msg.tool_calls:
-                    st.markdown(f"**Tool request:** `{tc.function.name}` with args:")
+                for tc in msg.get("tool_calls", []):
+                    st.markdown(f"**Tool request:** `{tc['function']['name']}` with args:")
                     try:
-                        st.code(json.dumps(json.loads(tc.function.arguments), indent=2), language="json")
+                        st.code(json.dumps(json.loads(tc['function']['arguments']), indent=2), language="json")
                     except json.JSONDecodeError:
-                        st.code(tc.function.arguments)
+                        st.code(tc['function']['arguments'])
                 if content:
                     st.markdown(content)
             elif role == "tool":
@@ -327,9 +331,10 @@ def save_conversation():
         # Save messages in a JSON-serializable format
         messages_to_save = []
         for m in st.session_state.messages:
-            if hasattr(m, "model_dump"):
+            # Ensure all messages are dictionaries before saving
+            if isinstance(m, ChatCompletionMessage):
                 messages_to_save.append(m.model_dump())
-            else:
+            elif isinstance(m, dict):
                 messages_to_save.append(m)
         
         with open(filepath, "w", encoding="utf-8") as f:
