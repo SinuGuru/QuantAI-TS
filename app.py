@@ -8,6 +8,9 @@ import plotly.express as px
 import time
 from datetime import datetime
 from typing import List, Dict, Any
+from streamlit_lottie import st_lottie
+
+
 
 # --- 1. CONFIGURATION AND UTILITIES ---
 
