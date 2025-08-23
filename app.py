@@ -10,8 +10,6 @@ from datetime import datetime
 from typing import List, Dict, Any
 from streamlit_lottie import st_lottie
 
-
-
 # --- 1. CONFIGURATION AND UTILITIES ---
 
 st.set_page_config(
@@ -151,8 +149,7 @@ def save_conversation():
             filename = os.path.join(CONVERSATIONS_DIR, f"{st.session_state.user_id}-{st.session_state.conversation_name}.json")
             messages_to_save = []
             for m in st.session_state.messages:
-                # Exclude tool messages from the saved history for simplicity and to prevent
-                # saving objects with complex attributes.
+                # Exclude tool messages from the saved history for simplicity
                 if m["role"] not in ["tool"]:
                     messages_to_save.append({"role": m["role"], "content": m.get("content")})
             with open(filename, "w") as f:
@@ -313,7 +310,6 @@ def generate_response(messages: List[Dict], model: str) -> str:
     if not st.session_state.client:
         return "Please provide a valid OpenAI API key in the Settings tab."
     
-    # We must construct the messages list in the format the API expects
     api_messages = [{"role": "system", "content": "You are Enterprise AI Assistant 2025, a professional assistant with knowledge up to December 2025. You are an expert in using tools to perform tasks."}]
     
     # Only append the most recent messages to save on context and tokens
@@ -401,12 +397,19 @@ def render_chat_messages():
     """Renders all messages in the session state using native Streamlit chat elements."""
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            if message["role"] == "assistant" and "tool_calls" in message:
-                st.info("The AI is using a tool to respond...")
+            # Check for content and handle different message types.
+            if message["role"] == "assistant":
+                if "tool_calls" in message:
+                    st.info("The AI is using a tool to respond...")
+                elif message.get("content") is not None and isinstance(message.get("content"), str):
+                    st.write(message["content"])
             elif message["role"] == "tool":
                 st.info(f"**Tool Output:**\n\n`{message['content']}`")
-            elif message.get("content") is not None:
-                st.write(message["content"])
+            else:
+                # Handle user messages and others.
+                if message.get("content") is not None and isinstance(message.get("content"), str):
+                    st.write(message["content"])
+
 
 # --- 7. MAIN APPLICATION FLOW ---
 
@@ -420,7 +423,7 @@ def main():
         st.caption("Enterprise AI Assistant 2025", help="A demo of an advanced AI assistant powered by Streamlit.")
         
         if lottie_ai:
-            st.lottie(lottie_ai, height=200, key="login-lottie")
+            st_lottie(lottie_ai, height=200, key="login-lottie")
         
         with st.form("login_form"):
             username = st.text_input("Username", placeholder="Enter your username")
@@ -452,7 +455,7 @@ def main():
         st.caption(f"Welcome, {st.session_state.user_id}! • Enterprise AI Assistant 2025 • v7.0.0")
     with col2:
         if lottie_robot:
-            st.lottie(lottie_robot, height=80, key="header-lottie")
+            st_lottie(lottie_robot, height=80, key="header-lottie")
             
     with st.sidebar:
         st.markdown("### 💬 Conversation History")
