@@ -445,7 +445,7 @@ def main():
 
     # --- Main App Interface ---
     
-    st.sidebar.button("🚪 Logout", on_on_click=lambda: st.session_state.update(authenticated=False))
+    st.sidebar.button("🚪 Logout", on_click=lambda: st.session_state.update(authenticated=False))
     
     col1, col2 = st.columns([3, 1])
     with col1:
