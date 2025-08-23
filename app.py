@@ -194,17 +194,20 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] {
         height: 60px;
         white-space: pre-wrap;
-        background: rgba(255, 255, 255, 极速4px);
+        /* Replaced '极速4px' with a valid value like '4px' or a variable */
+        background: rgba(255, 255, 255, 0.7); 
         border-radius: 12px;
         gap: 8px;
         padding: 16px 24px;
         font-weight: 600;
         margin: 0 4px;
-        border: 1px solid rgba(极速5, 255, 255, 0.5);
+        /* Replaced '极速5' with a valid value like '255' */
+        border: 1px solid rgba(255, 255, 255, 0.5); 
         backdrop-filter: blur(10px);
     }
     
-    .st极速 [aria-selected="true"] {
+    /* Replaced 'st极速' with a valid class name, assuming it should be 'stTabs' or similar */
+    .stTabs [aria-selected="true"] { 
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
     }
@@ -245,7 +248,8 @@ st.markdown("""
         backdrop-filter: blur(10px);
         padding: 3rem;
         border-radius: 24px;
-        box-shadow: 0 20极速 40px rgba(0,0,0,0.15);
+        /* Replaced '20极速' with '20px' to fix a syntax error in CSS */
+        box-shadow: 0 20px 40px rgba(0,0,0,0.15); 
         width: 450px;
         border: 1px solid rgba(255, 255, 255, 0.5);
     }
@@ -257,7 +261,8 @@ st.markdown("""
         border-radius: 16px;
         padding: 1.5rem;
         box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-        margin-bottom: 1.5极速;
+        /* Replaced '1.5极速' with '1.5rem' to fix syntax error */
+        margin-bottom: 1.5rem;
         border: 1px solid rgba(255, 255, 255, 0.5);
         transition: all 0.3s ease;
     }
@@ -306,7 +311,8 @@ st.markdown("""
     .icon-large {
         font-size: 2.5rem;
         margin-bottom: 1rem;
-        background: linear-gradient(135deg, #667eea 极速%, #764ba2 100%);
+        /* Replaced '极速%' with '0%' to fix syntax error */
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
@@ -321,7 +327,8 @@ st.markdown("""
         border-radius: 10px;
     }
     
-    ::-webkit-sc极速llbar-thumb {
+    /* Replaced '::-webkit-sc极速llbar-thumb' with a valid class name */
+    ::-webkit-scrollbar-thumb { 
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         border-radius: 10px;
     }
@@ -419,7 +426,8 @@ def setup_workflow_tools():
             "name": "Code Review",
             "description": "Analyze and improve code snippets with AI-powered suggestions",
             "icon": "💻",
-            "color": "#F59极速B"
+            # Replaced 'F59极速B' with valid hex code
+            "color": "#F596B3"
         },
         "document_generation": {
             "name": "Document Generation",
@@ -439,7 +447,8 @@ def setup_workflow_tools():
             "icon": "🔍",
             "color": "#8B5CF6"
         },
-        "meeting_assistant极速": {
+        # Replaced 'meeting_assistant极速' with a valid key
+        "meeting_assistant": {
             "name": "Meeting Assistant",
             "description": "Summarize meetings and extract action items",
             "icon": "📅",
@@ -474,7 +483,7 @@ def web_search(query: str):
     """Simulate web search with latest 2025 data"""
     search_results = [
         {"title": "AI Trends 2025: GPT-4.1 and GPT-5 Transform Industries", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-4.1's enhanced reasoning and 256K token context window are revolutionizing enterprise applications in 2025."},
-        {"title": "OpenAI Releases GPT-4.1: What's New", "url": "极速s://example.com/gpt41-update", "snippet": "GPT-4.1 features improved mathematical reasoning, better coding capabilities, and enhanced multimodal understanding."},
+        {"title": "OpenAI Releases GPT-4.1: What's New", "url": "https://example.com/gpt41-update", "snippet": "GPT-4.1 features improved mathematical reasoning, better coding capabilities, and enhanced multimodal understanding."},
         {"title": "Multimodal AI Becomes Standard in 2025", "url": "https://example.com/multimodal-2025", "snippet": "Most enterprise AI systems now seamlessly process text, images, audio, and video in unified models."},
         {"title": "OpenAI's GPT-4.1 Sets New Standards", "url": "https://example.com/gpt41-series", "snippet": "The GPT-4.1 model offers unprecedented speed and accuracy for real-time applications."}
     ]
@@ -534,7 +543,8 @@ def process_image(uploaded_image):
         # Clean up temporary file
         os.unlink(tmp_file_path)
         
-        return response.choices[0极速.message.content
+        # Fixed 'choices[0极速' to 'choices[0]'
+        return response.choices[0].message.content
     except Exception as e:
         return f"Error processing image: {str(e)}"
 
@@ -562,13 +572,15 @@ def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
         "gpt-4.5": {"input": 0.012, "output": 0.045},
         "gpt-4.1": {"input": 0.008, "output": 0.025},
         "gpt-4o": {"input": 0.005, "output": 0.015},
-        "gpt-4-turbo": {"极速nput": 0.01, "output": 0.03},
+        # Replaced '极速nput' with 'input'
+        "gpt-4-turbo": {"input": 0.01, "output": 0.03},
     }
     
     # Normalize model name
     model_key = model
+    # Replaced '极速t-5' with 'gpt-5'
     if "gpt-5" in model:
-        model_key = "极速t-5"
+        model_key = "gpt-5"
     elif "gpt-4.5" in model:
         model_key = "gpt-4.5"
     elif "gpt-4.1" in model:
@@ -614,7 +626,9 @@ def summarize_conversation(messages, conversation_id):
         
         summary = response.choices[0].message.content
         st.session_state.conversation_summaries[conversation_id] = summary
-        return summary极速    except Exception as e:
+        # Removed '极速'
+        return summary
+    except Exception as e:
         st.error(f"Error summarizing conversation: {str(e)}")
         return None
 
@@ -676,7 +690,8 @@ Be professional, concise, and helpful.
     
     # Add conversation summary if available
     conversation_id = st.session_state.conversation_name
-极速 summary = summarize_conversation(messages, conversation_id)
+    # Removed '极速'
+    summary = summarize_conversation(messages, conversation_id)
     if summary:
         system_content += f"\n\nConversation Summary:\n{summary}"
     
@@ -724,7 +739,8 @@ def create_model_comparison():
         "Context Window": ["1M", "128K", "256K", "128K"],
         "Intelligence": [10.0, 9.5, 9.3, 9.2],
         "Speed": [7, 8, 8.5, 9],
-        "Cost per 1K tokens": ["$15/60", "$12极速5", "$8/25", "$5/15"]
+        # Replaced '12极速5' with a valid value like '12/45'
+        "Cost per 1K tokens": ["$15/60", "$12/45", "$8/25", "$5/15"]
     }
     
     df = pd.DataFrame(models_data)
@@ -781,7 +797,8 @@ def create_analytics_dashboard():
     col1, col2 = st.columns(2)
     with col1:
         fig_cost = px.line(df, x='Date', y='Cost', title='Cost Over Time')
-        fig_cost.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0极速)')
+        # Replaced '极速)' with ')'
+        fig_cost.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_cost, use_container_width=True)
     
     with col2:
@@ -800,7 +817,8 @@ def speech_to_text():
     try:
         recognizer = sr.Recognizer()
         
-        with sr.Microphone()极速 source:
+        # Replaced 'sr.Microphone()极速' with 'sr.Microphone()'
+        with sr.Microphone() as source: 
             st.info("Listening... Speak now")
             try:
                 audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
@@ -819,7 +837,8 @@ def speech_to_text():
 def text_to_speech(text):
     """Convert text to speech"""
     try:
-        t极速 = gTTS(text=极速xt, lang='en')
+        # Replaced 't极速 = gTTS(text=极速xt' with 'tts = gTTS(text=text'
+        tts = gTTS(text=text, lang='en') 
         audio_bytes = io.BytesIO()
         tts.write_to_fp(audio_bytes)
         audio_bytes.seek(0)
@@ -908,7 +927,7 @@ def main():
             <p style="text-align: center; color: #718096; margin-top: 2rem;">
                 Demo credentials: admin/admin2025, analyst/analyst2025, or manager/manager2025
             </p>
-            </极速>
+            </div> 
         </div>
         """, unsafe_allow_html=True)
         
@@ -992,7 +1011,8 @@ def main():
         
         st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]}")
         
-极速 # Advanced settings
+        # Removed '极速'
+        # Advanced settings
         st.markdown("---")
         st.markdown("### ⚙️ Advanced Settings")
         st.session_state.temperature = st.slider("Temperature", 0.0, 1.0, 0.7, help="Controls randomness: Lower = more deterministic")
@@ -1039,7 +1059,7 @@ def main():
         with col1:
             if st.button("🆕 New Conversation", use_container_width=True):
                 st.session_state.messages = [
-                    {"role": "assistant", "极速ontent": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%极速 %H:%M")}
+                    {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")}
                 ]
                 st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
                 st.rerun()
@@ -1100,7 +1120,8 @@ def main():
             # Model comparison
             st.markdown("---")
             st.markdown('<div class="subheader">Latest Model Comparison</div>', unsafe_allow_html=True)
-            model极速 = create_model_comparison()
+            # Replaced 'model极速' with a valid variable name, 'model_df'
+            model_df = create_model_comparison()
             st.dataframe(model_df, use_container_width=True, hide_index=True)
             
             return
@@ -1188,7 +1209,7 @@ def main():
             
             st.markdown("""
             <div class="feature-card">
-                <h极速>📄 Document Processing</h4>
+                <h4>📄 Document Processing</h4> 
                 <p>Analyze and extract insights from uploaded PDF and text documents</p>
             </div>
             """, unsafe_allow_html=True)
@@ -1202,7 +1223,7 @@ def main():
             st.markdown(f'''
             <div class="chat-message user">
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                    <div class="message-avatar user-avatar">U</极速>
+                    <div class="message-avatar user-avatar">U</div> 
                     <strong>You</strong>
                 </div>
                 <div>{prompt}</div>
@@ -1287,7 +1308,7 @@ def main():
                     doc_id = str(uuid.uuid4())
                     
                     # Store in session state
-                    st.session_state.knowledge_base[极速c_id] = {
+                    st.session_state.knowledge_base[doc_id] = {
                         "name": kb_upload.name,
                         "content": content,
                         "upload_date": datetime.now().strftime("%Y-%m-%d %H:%M")
