@@ -6,6 +6,7 @@ import requests
 import pandas as pd
 import io
 import time
+import plotly.express as px
 import speech_recognition as sr
 from gtts import gTTS
 from datetime import datetime
