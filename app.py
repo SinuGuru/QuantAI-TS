@@ -131,7 +131,6 @@ def init_session_state():
         "conversation_name": f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         "usage_stats": {"tokens": 0, "requests": 0, "cost": 0.0},
         "temperature": 0.7,
-        "max_tokens": 1000,
         "document_uploaded": False,
         "image_uploaded": False,
     }
@@ -322,7 +321,6 @@ def generate_response(messages: List[Dict], model: str) -> str:
             tools=TOOLS,
             tool_choice="auto",
             temperature=st.session_state.temperature,
-            max_tokens=st.session_state.max_tokens,
         )
         
         message_content = response.choices[0].message
@@ -447,7 +445,7 @@ def main():
 
     # --- Main App Interface ---
     
-    st.sidebar.button("🚪 Logout", on_click=lambda: st.session_state.update(authenticated=False))
+    st.sidebar.button("🚪 Logout", on_on_click=lambda: st.session_state.update(authenticated=False))
     
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -592,7 +590,7 @@ def main():
             st.markdown("### AI Model Parameters")
             st.selectbox(
                 "AI Model",
-                ["gpt-5", "gpt-5-pro", "gpt-5-mini"],
+                ["gpt-5", "gpt-5-pro", "gpt-5-mini", "gpt-4o", "gpt-4-turbo-preview"],
                 key="model",
                 help="Select the AI model for your conversations. Newer models offer better performance but may have higher costs."
             )
@@ -601,12 +599,6 @@ def main():
                 0.0, 1.0, 0.7,
                 help="Controls the randomness of the response. Lower values produce more deterministic results, while higher values lead to more creative and varied output.",
                 key="temperature"
-            )
-            st.slider(
-                "Max Response Length",
-                100, 4000, 1000,
-                help="The maximum number of tokens (words) the AI can generate in a single response.",
-                key="max_tokens"
             )
 
 if __name__ == "__main__":
