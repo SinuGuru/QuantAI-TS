@@ -443,7 +443,7 @@ def main():
             if prompt:
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 with st.spinner("Thinking..."):
-                    reply = generate_response(st.session_state.messages, st.session_state.model)
+                    reply = response(st.session_state.messages, st.session_state.model)
                 st.session_state.messages.append({"role": "assistant", "content": reply})
                 st.experimental_rerun()
 
