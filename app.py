@@ -1,4 +1,3 @@
-# fixed_neuralink_app_multiuser.py
 import streamlit as st
 import openai
 import os
@@ -17,8 +16,9 @@ import binascii
 from pathlib import Path
 
 # --- CONFIG / CONSTANTS ---
-CONVERSATIONS_DIR = "conversations"  # legacy; not required but kept for migration scripts if needed
-os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
+# Use Path for better cross-platform compatibility
+CONVERSATIONS_DIR = Path("conversations")
+CONVERSATIONS_DIR.mkdir(exist_ok=True)
 
 SYSTEM_PROMPT = (
     "You are Enterprise AI Assistant 2025, a professional assistant with knowledge up to December 2025. "
@@ -36,6 +36,7 @@ def sanitize_filename(name: str) -> str:
     return name[:200]
 
 def safe_json_dumps(obj: Any) -> str:
+    """Safely dump a JSON object, handling non-serializable types gracefully."""
     try:
         return json.dumps(obj, indent=2, ensure_ascii=False)
     except Exception:
@@ -49,14 +50,15 @@ def load_lottieurl(url: str) -> Optional[Dict[str, Any]]:
         r.raise_for_status()
         return r.json()
     except requests.RequestException:
+        st.warning(f"Could not load Lottie animation from {url}")
         return None
 
 # --- DATABASE / AUTH HELPERS ---
 
 @st.cache_resource
-def init_db(db_path: str = str(DB_PATH)) -> sqlite3.Connection:
+def init_db(db_path: Path = DB_PATH) -> sqlite3.Connection:
     """Initialize and return a SQLite connection (cached resource)."""
-    conn = sqlite3.connect(db_path, check_same_thread=False)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     c = conn.cursor()
     # Users table
     c.execute("""
@@ -96,11 +98,13 @@ def init_db(db_path: str = str(DB_PATH)) -> sqlite3.Connection:
     return conn
 
 def hash_password(password: str) -> str:
+    """Hash a password using a random salt and PBKDF2."""
     salt = os.urandom(16)
     dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200_000)
     return f"{binascii.hexlify(salt).decode()}${binascii.hexlify(dk).decode()}"
 
 def verify_password(stored: str, provided: str) -> bool:
+    """Verify a provided password against a stored hash."""
     try:
         salt_hex, hash_hex = stored.split("$")
         salt = binascii.unhexlify(salt_hex)
@@ -110,6 +114,7 @@ def verify_password(stored: str, provided: str) -> bool:
         return False
 
 def create_user(conn: sqlite3.Connection, username: str, password: str, role: str = "user") -> Dict[str, Any]:
+    """Create a new user in the database."""
     pw_hash = hash_password(password)
     c = conn.cursor()
     try:
@@ -121,6 +126,7 @@ def create_user(conn: sqlite3.Connection, username: str, password: str, role: st
         raise ValueError("User exists")
 
 def get_user_by_username(conn: sqlite3.Connection, username: str) -> Optional[Dict[str, Any]]:
+    """Retrieve a user by their username."""
     c = conn.cursor()
     c.execute("SELECT id, username, password_hash, role FROM users WHERE username = ?", (username,))
     row = c.fetchone()
@@ -129,6 +135,7 @@ def get_user_by_username(conn: sqlite3.Connection, username: str) -> Optional[Di
     return {"id": row[0], "username": row[1], "password_hash": row[2], "role": row[3]}
 
 def authenticate_user(conn: sqlite3.Connection, username: str, password: str) -> Optional[Dict[str, Any]]:
+    """Authenticate a user with a username and password."""
     user = get_user_by_username(conn, username)
     if not user:
         return None
@@ -137,6 +144,7 @@ def authenticate_user(conn: sqlite3.Connection, username: str, password: str) ->
     return None
 
 def save_conversation_db(conn: sqlite3.Connection, user_id: int, name: str, messages: list) -> None:
+    """Save or update a conversation in the database."""
     c = conn.cursor()
     payload = json.dumps(messages, ensure_ascii=False, indent=2)
     try:
@@ -146,18 +154,19 @@ def save_conversation_db(conn: sqlite3.Connection, user_id: int, name: str, mess
         """, (user_id, name, payload))
         conn.commit()
     except sqlite3.OperationalError:
-        # Fallback for older SQLite versions that don't support excluded:
-        # Delete existing and insert
+        # Fallback for older SQLite versions
         c.execute("DELETE FROM conversations WHERE user_id = ? AND name = ?", (user_id, name))
         c.execute("INSERT INTO conversations (user_id, name, data) VALUES (?, ?, ?)", (user_id, name, payload))
         conn.commit()
 
 def get_user_conversations(conn: sqlite3.Connection, user_id: int):
+    """Retrieve all conversations for a specific user."""
     c = conn.cursor()
     c.execute("SELECT name, created_at FROM conversations WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
     return c.fetchall()
 
 def load_conversation_db(conn: sqlite3.Connection, user_id: int, name: str):
+    """Load a specific conversation from the database."""
     c = conn.cursor()
     c.execute("SELECT data FROM conversations WHERE user_id = ? AND name = ? LIMIT 1", (user_id, name))
     row = c.fetchone()
@@ -166,6 +175,7 @@ def load_conversation_db(conn: sqlite3.Connection, user_id: int, name: str):
     return json.loads(row[0])
 
 def add_usage(conn: sqlite3.Connection, user_id: int, tokens: int = 0, requests: int = 1, cost: float = 0.0):
+    """Add or update usage statistics for a user on the current day."""
     today = date.today().isoformat()
     c = conn.cursor()
     try:
@@ -178,7 +188,7 @@ def add_usage(conn: sqlite3.Connection, user_id: int, tokens: int = 0, requests:
           cost = cost + excluded.cost
         """, (user_id, today, tokens, requests, cost))
     except sqlite3.OperationalError:
-        # fallback: update or insert
+        # fallback for older SQLite versions
         c.execute("SELECT id FROM usage WHERE user_id = ? AND date = ?", (user_id, today))
         if c.fetchone():
             c.execute("UPDATE usage SET tokens = tokens + ?, requests = requests + ?, cost = cost + ? WHERE user_id = ? AND date = ?",
@@ -194,10 +204,10 @@ def init_session_state():
     """Initialize session state variables."""
     defaults = {
         "authenticated": False,
-        "user_id": None,  # integer DB id
+        "user_id": None,
         "username": None,
         "user_role": None,
-        "api_key": os.getenv("OPENAI_API_KEY", ""),  # note: for multiuser, consider server-side key
+        "api_key": os.getenv("OPENAI_API_KEY", ""),
         "client_initialized": False,
         "messages": [
             {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?"}
@@ -212,7 +222,7 @@ def init_session_state():
             st.session_state[k] = v
 
 def logout():
-    """Clear session keys that represent the current user session (safe logout)."""
+    """Clear session keys for a clean logout."""
     keys_to_clear = ["authenticated", "user_id", "username", "user_role", "messages", "conversation_name", "client_initialized"]
     for k in keys_to_clear:
         if k in st.session_state:
@@ -223,14 +233,18 @@ def logout():
 
 @st.cache_resource
 def create_openai_client(api_key: str):
-    """Create an OpenAI client resource. Use Streamlit cached resource for reuse."""
+    """Create an OpenAI client resource."""
     if not api_key:
         return None
     try:
         client = openai.OpenAI(api_key=api_key)
+        # Verify the key is valid with a simple model list call
+        client.models.list()
+        st.session_state["client_initialized"] = True
         return client
     except Exception as e:
         st.error(f"Failed to create OpenAI client: {e}")
+        st.session_state["client_initialized"] = False
         return None
 
 # --- LOCAL TOOL FUNCTIONS ---
@@ -276,7 +290,7 @@ def data_analysis(query: str, data: str) -> str:
 def get_current_datetime() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
-# Convert to "functions" descriptors for the model (same as before)
+# Convert to "functions" descriptors for the model
 FUNCTIONS = [
     {
         "name": "web_search",
@@ -328,17 +342,13 @@ def _normalize_message(msg: Any) -> Dict[str, Any]:
     """Ensure an incoming message object is converted into a plain dict with role/content (and optional metadata)."""
     if isinstance(msg, dict):
         return msg
-    # Try to get common attrs
     try:
         return {"role": getattr(msg, "role", "assistant"), "content": getattr(msg, "content", str(msg))}
     except Exception:
         return {"role": "assistant", "content": str(msg)}
 
 def response(messages: List[Dict[str, Any]], model: str) -> str:
-    """
-    Generate a response using OpenAI function-calling.
-    This implementation is defensive: messages should be plain dicts.
-    """
+    """Generate a response using OpenAI function-calling."""
     if not st.session_state.get("api_key"):
         return "Please enter your OpenAI API key in the Settings tab."
 
@@ -351,7 +361,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
 
     try:
         # Primary call to the model
-        # Note: SDK parameter names vary by version; adjust if needed.
         response_obj = client.chat.completions.create(
             model=model,
             messages=api_messages,
@@ -361,36 +370,21 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
         )
         st.session_state.usage_stats["requests"] += 1
 
-        # Defensive extraction of the assistant message
         choice = response_obj.choices[0]
-        # choice.message may be an SDK model or a dict
-        message = getattr(choice, "message", None) or (choice.get("message") if isinstance(choice, dict) else None)
+        message = choice.message
 
-        # If using SDK model objects, try to convert to dict; otherwise assume dict-like
-        try:
-            message_dict = _normalize_message(message.model_dump() if hasattr(message, "model_dump") else message)
-        except Exception:
-            message_dict = _normalize_message(message)
-
-        # Some SDKs expose tool calls as 'tool_calls' or 'function_call'
-        tool_calls = []
-        if isinstance(message_dict.get("tool_calls"), list):
-            tool_calls = message_dict.get("tool_calls", [])
-        elif message_dict.get("function_call"):
-            tool_calls = [message_dict.get("function_call")]
-
+        tool_calls = message.tool_calls
         if tool_calls:
             # Append assistant's request to call a tool
-            st.session_state.messages.append(message_dict)
-
+            st.session_state.messages.append(message)
+            
             for tool_call in tool_calls:
-                # tool_call may have different shapes; defensive parsing
-                function_name = tool_call.get("name") or (tool_call.get("function", {}).get("name") if isinstance(tool_call.get("function"), dict) else None)
-                arguments_str = tool_call.get("arguments") or (tool_call.get("function", {}).get("arguments") if isinstance(tool_call.get("function"), dict) else "{}") or "{}"
+                function_name = tool_call.function.name
+                arguments_str = tool_call.function.arguments
 
                 try:
                     args = json.loads(arguments_str)
-                except Exception:
+                except json.JSONDecodeError:
                     args = {"raw_arguments": arguments_str}
 
                 tool_func = LOCAL_TOOL_MAP.get(function_name)
@@ -398,17 +392,14 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                     func_result = f"Error: Tool '{function_name}' not implemented."
                 else:
                     try:
-                        # If args is a dict, expand; otherwise pass raw
-                        if isinstance(args, dict):
-                            func_result = tool_func(**args)
-                        else:
-                            func_result = tool_func(args)
+                        func_result = tool_func(**args)
                     except Exception as e:
                         func_result = f"Error when executing tool '{function_name}': {e}"
 
                 st.session_state.messages.append({
                     "role": "tool",
-                    "name": function_name or "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": function_name,
                     "content": func_result
                 })
 
@@ -420,41 +411,27 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                 temperature=st.session_state.get("temperature", 0.7),
             )
             st.session_state.usage_stats["requests"] += 1
-            final_choice = response2.choices[0]
-            final_message = getattr(final_choice, "message", None) or (final_choice.get("message") if isinstance(final_choice, dict) else None)
-            final_message_dict = _normalize_message(final_message.model_dump() if hasattr(final_message, "model_dump") else final_message)
-            st.session_state.messages.append(final_message_dict)
+            final_message = response2.choices[0].message
+            st.session_state.messages.append(final_message)
 
-            # Update usage table if possible
-            try:
+            # Update usage table
+            if st.session_state.get("user_id"):
                 conn = init_db()
-                # SDK usage location may vary; defensive attempt:
-                usage_info = getattr(response2, "usage", None) or (response2.get("usage") if isinstance(response2, dict) else None)
-                tokens = 0
-                if usage_info:
-                    tokens = usage_info.get("total_tokens", usage_info.get("completion_tokens", 0) + usage_info.get("prompt_tokens", 0)) if isinstance(usage_info, dict) else 0
-                if st.session_state.get("user_id"):
-                    add_usage(conn, st.session_state["user_id"], tokens=tokens, requests=1, cost=0.0)
-            except Exception:
-                pass
+                tokens = response2.usage.total_tokens
+                # Note: Cost calculation is model-dependent, this is a placeholder
+                add_usage(conn, st.session_state["user_id"], tokens=tokens)
 
-            return final_message_dict.get("content", "") or ""
+            return final_message.content or ""
         else:
-            st.session_state.messages.append(message_dict)
+            st.session_state.messages.append(message)
 
-            # Update usage table if possible
-            try:
+            # Update usage table
+            if st.session_state.get("user_id"):
                 conn = init_db()
-                usage_info = getattr(response_obj, "usage", None) or (response_obj.get("usage") if isinstance(response_obj, dict) else None)
-                tokens = 0
-                if usage_info:
-                    tokens = usage_info.get("total_tokens", usage_info.get("completion_tokens", 0) + usage_info.get("prompt_tokens", 0)) if isinstance(usage_info, dict) else 0
-                if st.session_state.get("user_id"):
-                    add_usage(conn, st.session_state["user_id"], tokens=tokens, requests=1, cost=0.0)
-            except Exception:
-                pass
+                tokens = response_obj.usage.total_tokens
+                add_usage(conn, st.session_state["user_id"], tokens=tokens)
 
-            return message_dict.get("content", "") or ""
+            return message.content or ""
     except openai.APIError as e:
         return f"OpenAI API error: {e}"
     except Exception as e:
@@ -465,21 +442,16 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
 def render_chat_messages():
     """Render all messages in the session with better formatting for code and JSON."""
     for msg in st.session_state.messages:
-        if not isinstance(msg, dict):
-            # Convert to a simple dict to render safely
-            msg = {"role": "assistant", "content": str(msg)}
-
+        # Normalize the message to a dictionary for safe access
+        msg = _normalize_message(msg)
         role = msg.get("role", "user")
         with st.chat_message(role):
             content = msg.get("content", "")
             if role == "assistant" and msg.get("tool_calls"):
                 for tc in msg.get("tool_calls", []):
-                    st.markdown(f"**Tool request:** `{tc.get('name', tc.get('function', {}).get('name', 'unknown'))}` with args:")
-                    try:
-                        arg_text = tc.get("arguments") or (tc.get("function", {}).get("arguments") if isinstance(tc.get("function"), dict) else "")
-                        st.code(json.dumps(json.loads(arg_text), indent=2), language="json")
-                    except Exception:
-                        st.code(tc.get("function", {}).get("arguments", "") if isinstance(tc.get("function"), dict) else str(tc.get("arguments")))
+                    func_name = tc.get('function', {}).get('name', 'unknown')
+                    st.markdown(f"**Tool request:** `{func_name}`")
+                    st.code(tc.get('function', {}).get('arguments', ''), language="json")
                 if content:
                     st.markdown(content)
             elif role == "tool":
@@ -494,17 +466,26 @@ def render_chat_messages():
                 st.markdown(content)
 
 def display_usage_stats():
+    """Display usage statistics in a clean card format."""
+    # Fetch total stats from DB instead of session state for accuracy
+    conn = init_db()
+    c = conn.cursor()
+    c.execute("SELECT SUM(tokens), SUM(requests), SUM(cost) FROM usage WHERE user_id = ?", (st.session_state.get("user_id"),))
+    result = c.fetchone()
+    total_tokens, total_requests, total_cost = result if result else (0, 0, 0.0)
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f"<div class='stat-card'><div class='stat-value'>{st.session_state.usage_stats['tokens']:,}</div><div class='stat-label'>Total Tokens</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='stat-card'><div class='stat-value'>{int(total_tokens):,}</div><div class='stat-label'>Total Tokens</div></div>", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"<div class='stat-card'><div class='stat-value'>{st.session_state.usage_stats['requests']}</div><div class='stat-label'>API Requests</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='stat-card'><div class='stat-value'>{int(total_requests)}</div><div class='stat-label'>API Requests</div></div>", unsafe_allow_html=True)
     with col3:
-        st.markdown(f"<div class='stat-card'><div class='stat-value'>${st.session_state.usage_stats['cost']:.2f}</div><div class='stat-label'>Estimated Cost</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='stat-card'><div class='stat-value'>${total_cost:.2f}</div><div class='stat-label'>Estimated Cost</div></div>", unsafe_allow_html=True)
 
 # --- CONVERSATION SAVE / LOAD (DB-backed) ---
 
 def save_conversation():
+    """Save the current conversation."""
     if not st.session_state.get("authenticated") or not st.session_state.get("user_id"):
         st.warning("Please log in before saving conversations.")
         return
@@ -519,6 +500,7 @@ def save_conversation():
         st.error(f"Failed to save conversation: {e}")
 
 def load_conversation(name: str):
+    """Load a conversation from the database."""
     try:
         conn = init_db()
         msgs = load_conversation_db(conn, st.session_state["user_id"], name)
@@ -532,6 +514,7 @@ def load_conversation(name: str):
         st.error(f"Failed to load conversation: {e}")
 
 def new_chat():
+    """Start a new chat session."""
     st.session_state.messages = [{"role": "assistant", "content": "Hello! I'm your assistant. How can I help you today?"}]
     st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H-%M')}"
 
@@ -672,16 +655,26 @@ def main():
                     st.error(f"Could not read CSV: {e}")
 
     with tab_analytics:
-        st.markdown("### Usage Analytics (mock)")
-        df_usage = pd.DataFrame({
-            "Date": pd.date_range(start="2025-01-01", periods=30, freq="D"),
-            "Tokens": [1000 + i * 150 for i in range(30)],
-            "Cost": [5 + i * 0.5 for i in range(30)],
-            "Requests": [10 + i * 2 for i in range(30)],
-        })
-        st.plotly_chart(px.line(df_usage, x="Date", y="Tokens", title="Daily Token Usage"), use_container_width=True)
-        st.plotly_chart(px.line(df_usage, x="Date", y="Cost", title="Estimated Daily Cost"), use_container_width=True)
-        st.plotly_chart(px.line(df_usage, x="Date", y="Requests", title="Daily API Requests"), use_container_width=True)
+        st.markdown("### Usage Analytics")
+        if st.session_state.get("user_id"):
+            try:
+                # Query the actual usage data from the database
+                conn = init_db()
+                query = "SELECT date, tokens, requests, cost FROM usage WHERE user_id = ? ORDER BY date ASC"
+                df_usage = pd.read_sql_query(query, conn, params=(st.session_state["user_id"],))
+
+                if not df_usage.empty:
+                    df_usage["date"] = pd.to_datetime(df_usage["date"])
+
+                    st.plotly_chart(px.line(df_usage, x="date", y="tokens", title="Daily Token Usage"), use_container_width=True)
+                    st.plotly_chart(px.line(df_usage, x="date", y="cost", title="Estimated Daily Cost"), use_container_width=True)
+                    st.plotly_chart(px.line(df_usage, x="date", y="requests", title="Daily API Requests"), use_container_width=True)
+                else:
+                    st.info("No usage data available yet. Start a conversation to see your analytics!")
+            except Exception as e:
+                st.error(f"Failed to load analytics: {e}")
+        else:
+            st.warning("Please log in to view your analytics.")
 
     with tab_settings:
         st.markdown("### OpenAI API Settings")
