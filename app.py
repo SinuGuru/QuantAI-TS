@@ -663,7 +663,7 @@ def main():
             """)
 
     # --- Tabs for Main Content ---
-    chat_tab, workflows_tab, analytics_tab, settings_tab = st.tabs(["💬 Chat", "🛠️ Workflows", "📈 Analytics", "⚙️ Settings"])
+    chat_tab, workflows_tab, analytics_tab, settings_tab = st.tabs(["Chat", "Workflows", "Analytics", "Settings"])
 
     with chat_tab:
         if not st.session_state.api_key or not st.session_state.client:
