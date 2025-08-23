@@ -5,6 +5,7 @@ import json
 import requests
 import pandas as pd
 import plotly.express as px
+import time # Added missing import
 from datetime import datetime
 from typing import List, Dict, Any
 
@@ -146,8 +147,8 @@ def save_conversation():
     if st.session_state.authenticated and st.session_state.messages:
         try:
             filename = os.path.join(CONVERSATIONS_DIR, f"{st.session_state.user_id}-{st.session_state.conversation_name}.json")
-            # Exclude tool calls from the saved history for simplicity
-            messages_to_save = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages if m["role"] != "tool"]
+            # Exclude tool messages from the saved history for simplicity
+            messages_to_save = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages if m["role"] not in ["tool"]]
             with open(filename, "w") as f:
                 json.dump(messages_to_save, f, indent=2)
             st.toast("✅ Conversation saved!")
@@ -312,11 +313,29 @@ def generate_response(messages: List[Dict], model: str) -> str:
     if not st.session_state.client:
         return "Please provide a valid OpenAI API key in the Settings tab."
 
+    # System prompt. Ensure it's always the first message for context.
     system_content = "You are Enterprise AI Assistant 2025, a professional assistant with knowledge up to December 2025. You are an expert in using tools to perform tasks."
-    # Use a trimmed history for the API call to save on token usage
     api_messages = [{"role": "system", "content": system_content}]
-    api_messages.extend([{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "tool"])
-
+    
+    # Append the last user message and the assistant's previous responses
+    # This is a key bug fix. The `api_messages` list should contain the entire conversation history
+    # that is relevant for the model to make a decision, including previous tool calls and outputs.
+    # The original code only added messages where role != 'tool', which is incorrect for tool-using models.
+    for m in messages:
+        if m["role"] == "tool":
+            api_messages.append({
+                "role": "tool",
+                "tool_call_id": m.get("tool_call_id"),
+                "content": m["content"],
+            })
+        elif m["role"] == "assistant" and "tool_calls" in m:
+            api_messages.append({
+                "role": "assistant",
+                "tool_calls": m["tool_calls"],
+            })
+        else:
+            api_messages.append({"role": m["role"], "content": m["content"]})
+    
     try:
         response = st.session_state.client.chat.completions.create(
             model=model,
@@ -327,9 +346,13 @@ def generate_response(messages: List[Dict], model: str) -> str:
             max_tokens=st.session_state.max_tokens,
         )
         
-        tool_calls = response.choices[0].message.tool_calls
-        if tool_calls:
-            st.session_state.messages.append(response.choices[0].message)
+        message_content = response.choices[0].message
+        
+        # Check for tool calls and execute them
+        if message_content.tool_calls:
+            # Append the assistant's tool-call message to the conversation history
+            st.session_state.messages.append(message_content)
+            
             available_functions = {
                 "web_search": web_search,
                 "code_review": code_review,
@@ -338,7 +361,7 @@ def generate_response(messages: List[Dict], model: str) -> str:
             }
             
             # Execute each tool call
-            for tool_call in tool_calls:
+            for tool_call in message_content.tool_calls:
                 function_name = tool_call.function.name
                 function_to_call = available_functions.get(function_name)
                 
@@ -346,29 +369,42 @@ def generate_response(messages: List[Dict], model: str) -> str:
                     st.error(f"Error: Tool '{function_name}' not found.")
                     continue
                 
-                function_args = json.loads(tool_call.function.arguments)
-                
-                st.session_state.messages.append({"role": "tool", "content": f"Calling tool: `{function_name}` with args: `{function_args}`"})
-                
-                function_response = function_to_call(**function_args)
-                
-                st.session_state.messages.append(
-                    {
-                        "tool_call_id": tool_call.id,
-                        "role": "tool",
-                        "name": function_name,
-                        "content": function_response,
-                    }
-                )
+                try:
+                    function_args = json.loads(tool_call.function.arguments)
+                    
+                    # Add a message to display that a tool is being called
+                    st.session_state.messages.append({"role": "tool", "content": f"Calling tool: `{function_name}` with args: `{json.dumps(function_args, indent=2)}`", "tool_call_id": tool_call.id})
+                    
+                    function_response = function_to_call(**function_args)
+                    
+                    # Append the tool's output to the conversation history for the next API call
+                    st.session_state.messages.append(
+                        {
+                            "tool_call_id": tool_call.id,
+                            "role": "tool",
+                            "name": function_name,
+                            "content": function_response,
+                        }
+                    )
+                except Exception as e:
+                    st.error(f"Failed to execute tool '{function_name}': {e}")
+                    # A message indicating tool failure should also be added for the next API call
+                    st.session_state.messages.append(
+                        {
+                            "tool_call_id": tool_call.id,
+                            "role": "tool",
+                            "name": function_name,
+                            "content": f"Error: Tool execution failed with error: {e}",
+                        }
+                    )
             
             # Re-call the model with tool outputs to get a final, user-facing response
-            second_response = st.session_state.client.chat.completions.create(
-                model=model,
-                messages=[{"role": m["role"], "content": m["content"], "tool_calls": m.tool_calls if hasattr(m, 'tool_calls') else None} for m in st.session_state.messages],
-            )
-            return second_response.choices[0].message.content
+            # This is a recursive call to the same function, which is a cleaner pattern
+            # for handling a multi-turn tool-using conversation.
+            return generate_response(st.session_state.messages, model)
         else:
-            return response.choices[0].message.content
+            # No tool calls, return the content directly
+            return message_content.content
     except openai.APIError as e:
         return f"❌ OpenAI API Error: {e}"
     except Exception as e:
@@ -423,7 +459,7 @@ def main():
                     st.session_state.user_role = role
                     st.success(f"Welcome, {name}!")
                     time.sleep(1) # Pause for a moment to show success message
-                    st.rerun()
+                    st.rerun() # Rerun to switch to the main interface
                 else:
                     st.error("Invalid username or password")
         
@@ -449,7 +485,7 @@ def main():
         
         if st.button("🆕 Start New Chat", use_container_width=True):
             new_chat()
-            st.rerun()
+            st.rerun() # Rerun to clear the chat and display the new conversation
         
         if st.button("💾 Save Conversation", use_container_width=True):
             save_conversation()
@@ -490,23 +526,25 @@ def main():
         if not st.session_state.api_key or not st.session_state.client:
             st.warning("⚠️ Please enter your OpenAI API key in the **Settings** tab to begin.")
             st.info("ℹ️ You can find your API key at [OpenAI's platform](https://platform.openai.com/api-keys).")
-            st.stop()
-        
-        st.markdown(f'<div class="subheader">Conversation: {st.session_state.conversation_name} <span class="model-badge">{st.session_state.model}</span></div>', unsafe_allow_html=True)
-        
-        # Display chat messages
-        render_chat_messages()
-        
-        # Chat input at the bottom of the screen
-        user_prompt = st.chat_input("Type your message here...")
-        if user_prompt:
-            st.session_state.messages.append({"role": "user", "content": user_prompt})
+            # st.stop() can be removed as the warning handles the case.
+        else:
+            st.markdown(f'<div class="subheader">Conversation: {st.session_state.conversation_name} <span class="model-badge">{st.session_state.model}</span></div>', unsafe_allow_html=True)
             
-            with st.spinner("Thinking..."):
-                full_response = generate_response(st.session_state.messages, st.session_state.model)
+            # Display chat messages
+            render_chat_messages()
+            
+            # Chat input at the bottom of the screen
+            user_prompt = st.chat_input("Type your message here...")
+            if user_prompt:
+                st.session_state.messages.append({"role": "user", "content": user_prompt})
+                
+                with st.spinner("Thinking..."):
+                    # The generate_response function now handles the tool-call loop internally
+                    # so no need for an extra loop here.
+                    full_response = generate_response(st.session_state.messages, st.session_state.model)
 
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
-            st.rerun()
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                st.rerun()
 
     with workflows_tab:
         st.markdown('<div class="subheader">🛠️ Workflow Tools</div>', unsafe_allow_html=True)
@@ -520,6 +558,7 @@ def main():
         
         if st.button("Review Code", use_container_width=True):
             if code_input:
+                # Append the user's request to the messages and let the chat loop handle it
                 st.session_state.messages.append({"role": "user", "content": f"Please review this code: \n\n```python\n{code_input}\n```"})
                 st.rerun()
             else:
@@ -539,8 +578,9 @@ def main():
             if uploaded_data and data_query:
                 try:
                     df = pd.read_csv(uploaded_data)
-                    data_string = df.to_json(orient="records")
-                    st.session_state.messages.append({"role": "user", "content": f"Analyze the following data: {data_string}. The question is: {data_query}"})
+                    # Convert to string to pass to the tool
+                    data_string = df.to_csv(index=False)
+                    st.session_state.messages.append({"role": "user", "content": f"Analyze the following data: \n\n```csv\n{data_string}\n```. The question is: {data_query}"})
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error reading CSV: {e}")
@@ -580,7 +620,7 @@ def main():
             st.session_state.client = setup_openai(api_key_input)
             if st.session_state.client:
                 st.success("✅ API Key configured successfully!")
-            st.rerun()
+            # st.rerun() is not needed here, as the state change will trigger a rerun anyway.
 
         if st.session_state.client:
             st.markdown("### AI Model Parameters")
