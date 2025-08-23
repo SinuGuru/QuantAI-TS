@@ -194,19 +194,16 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] {
         height: 60px;
         white-space: pre-wrap;
-        /* Replaced '极速4px' with a valid value like '4px' or a variable */
         background: rgba(255, 255, 255, 0.7); 
         border-radius: 12px;
         gap: 8px;
         padding: 16px 24px;
         font-weight: 600;
         margin: 0 4px;
-        /* Replaced '极速5' with a valid value like '255' */
         border: 1px solid rgba(255, 255, 255, 0.5); 
         backdrop-filter: blur(10px);
     }
     
-    /* Replaced 'st极速' with a valid class name, assuming it should be 'stTabs' or similar */
     .stTabs [aria-selected="true"] { 
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
@@ -247,10 +244,9 @@ st.markdown("""
         background: rgba(255, 255, 255, 0.8);
         backdrop-filter: blur(10px);
         padding: 3rem;
-        border-radius: 24px;
-        /* Replaced '20极速' with '20px' to fix a syntax error in CSS */
         box-shadow: 0 20px 40px rgba(0,0,0,0.15); 
         width: 450px;
+        border-radius: 24px;
         border: 1px solid rgba(255, 255, 255, 0.5);
     }
     
@@ -261,7 +257,6 @@ st.markdown("""
         border-radius: 16px;
         padding: 1.5rem;
         box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-        /* Replaced '1.5极速' with '1.5rem' to fix syntax error */
         margin-bottom: 1.5rem;
         border: 1px solid rgba(255, 255, 255, 0.5);
         transition: all 0.3s ease;
@@ -311,7 +306,6 @@ st.markdown("""
     .icon-large {
         font-size: 2.5rem;
         margin-bottom: 1rem;
-        /* Replaced '极速%' with '0%' to fix syntax error */
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
@@ -327,7 +321,6 @@ st.markdown("""
         border-radius: 10px;
     }
     
-    /* Replaced '::-webkit-sc极速llbar-thumb' with a valid class name */
     ::-webkit-scrollbar-thumb { 
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         border-radius: 10px;
@@ -426,7 +419,6 @@ def setup_workflow_tools():
             "name": "Code Review",
             "description": "Analyze and improve code snippets with AI-powered suggestions",
             "icon": "💻",
-            # Replaced 'F59极速B' with valid hex code
             "color": "#F596B3"
         },
         "document_generation": {
@@ -447,7 +439,6 @@ def setup_workflow_tools():
             "icon": "🔍",
             "color": "#8B5CF6"
         },
-        # Replaced 'meeting_assistant极速' with a valid key
         "meeting_assistant": {
             "name": "Meeting Assistant",
             "description": "Summarize meetings and extract action items",
@@ -543,7 +534,6 @@ def process_image(uploaded_image):
         # Clean up temporary file
         os.unlink(tmp_file_path)
         
-        # Fixed 'choices[0极速' to 'choices[0]'
         return response.choices[0].message.content
     except Exception as e:
         return f"Error processing image: {str(e)}"
@@ -572,13 +562,11 @@ def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
         "gpt-4.5": {"input": 0.012, "output": 0.045},
         "gpt-4.1": {"input": 0.008, "output": 0.025},
         "gpt-4o": {"input": 0.005, "output": 0.015},
-        # Replaced '极速nput' with 'input'
         "gpt-4-turbo": {"input": 0.01, "output": 0.03},
     }
     
     # Normalize model name
     model_key = model
-    # Replaced '极速t-5' with 'gpt-5'
     if "gpt-5" in model:
         model_key = "gpt-5"
     elif "gpt-4.5" in model:
@@ -626,7 +614,6 @@ def summarize_conversation(messages, conversation_id):
         
         summary = response.choices[0].message.content
         st.session_state.conversation_summaries[conversation_id] = summary
-        # Removed '极速'
         return summary
     except Exception as e:
         st.error(f"Error summarizing conversation: {str(e)}")
@@ -690,7 +677,6 @@ Be professional, concise, and helpful.
     
     # Add conversation summary if available
     conversation_id = st.session_state.conversation_name
-    # Removed '极速'
     summary = summarize_conversation(messages, conversation_id)
     if summary:
         system_content += f"\n\nConversation Summary:\n{summary}"
@@ -739,7 +725,6 @@ def create_model_comparison():
         "Context Window": ["1M", "128K", "256K", "128K"],
         "Intelligence": [10.0, 9.5, 9.3, 9.2],
         "Speed": [7, 8, 8.5, 9],
-        # Replaced '12极速5' with a valid value like '12/45'
         "Cost per 1K tokens": ["$15/60", "$12/45", "$8/25", "$5/15"]
     }
     
@@ -797,7 +782,6 @@ def create_analytics_dashboard():
     col1, col2 = st.columns(2)
     with col1:
         fig_cost = px.line(df, x='Date', y='Cost', title='Cost Over Time')
-        # Replaced '极速)' with ')'
         fig_cost.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_cost, use_container_width=True)
     
@@ -817,7 +801,6 @@ def speech_to_text():
     try:
         recognizer = sr.Recognizer()
         
-        # Replaced 'sr.Microphone()极速' with 'sr.Microphone()'
         with sr.Microphone() as source: 
             st.info("Listening... Speak now")
             try:
@@ -837,7 +820,6 @@ def speech_to_text():
 def text_to_speech(text):
     """Convert text to speech"""
     try:
-        # Replaced 't极速 = gTTS(text=极速xt' with 'tts = gTTS(text=text'
         tts = gTTS(text=text, lang='en') 
         audio_bytes = io.BytesIO()
         tts.write_to_fp(audio_bytes)
@@ -1011,7 +993,6 @@ def main():
         
         st.info(f"**{st.session_state.model}**: {model_info[st.session_state.model]}")
         
-        # Removed '极速'
         # Advanced settings
         st.markdown("---")
         st.markdown("### ⚙️ Advanced Settings")
@@ -1120,7 +1101,6 @@ def main():
             # Model comparison
             st.markdown("---")
             st.markdown('<div class="subheader">Latest Model Comparison</div>', unsafe_allow_html=True)
-            # Replaced 'model极速' with a valid variable name, 'model_df'
             model_df = create_model_comparison()
             st.dataframe(model_df, use_container_width=True, hide_index=True)
             
@@ -1223,7 +1203,7 @@ def main():
             st.markdown(f'''
             <div class="chat-message user">
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                    <div class="message-avatar user-avatar">U</div> 
+                    <div class="message-avatar user-avatar">U</div>
                     <strong>You</strong>
                 </div>
                 <div>{prompt}</div>
