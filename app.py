@@ -592,7 +592,7 @@ def main():
             st.markdown("### AI Model Parameters")
             st.selectbox(
                 "AI Model",
-                ["GPT-5", "GPT-5 Pro", "GPT-5 mini", "GPT-4.1", "GPT-4.1 mini", "GPT-4.1 nano", "GPT-4o"],
+                ["gpt-5", "gpt-5-pro", "gpt-5-mini"],
                 key="model",
                 help="Select the AI model for your conversations. Newer models offer better performance but may have higher costs."
             )
