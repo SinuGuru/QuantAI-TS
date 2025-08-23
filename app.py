@@ -1,4 +1,4 @@
-# improved_neuralink_app.py
+# improved_neuralink_app_v2.py
 import streamlit as st
 import openai
 import os
@@ -13,6 +13,8 @@ from streamlit_lottie import st_lottie
 import re
 
 # --- CONFIG / CONSTANTS ---
+# Use Streamlit secrets for production. This local fallback is for local testing.
+OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 CONVERSATIONS_DIR = "conversations"
 os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
 SYSTEM_PROMPT = (
@@ -30,6 +32,7 @@ def sanitize_filename(name: str) -> str:
     return name[:200]
 
 def safe_json_dumps(obj: Any) -> str:
+    """Safely dump a Python object to a JSON string."""
     try:
         return json.dumps(obj, indent=2, ensure_ascii=False)
     except Exception:
@@ -53,7 +56,7 @@ def init_session_state():
         "authenticated": False,
         "user_id": None,
         "user_role": None,
-        "api_key": os.getenv("OPENAI_API_KEY", ""),  # recommended to set via Streamlit secrets in production
+        "api_key": OPENAI_API_KEY,
         "client_initialized": False,
         "messages": [
             {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?"}
@@ -73,21 +76,19 @@ def logout():
     for k in keys_to_clear:
         if k in st.session_state:
             del st.session_state[k]
-    # keep API key in session (if you want) or clear it too:
-    # if "api_key" in st.session_state: del st.session_state["api_key"]
-    st.experimental_rerun()
+    st.rerun()
 
 # --- OPENAI CLIENT SETUP ---
 
 @st.cache_resource
-def create_openai_client(api_key: str):
-    """Create an OpenAI client resource. Use Streamlit cached resource for reuse."""
+def create_openai_client(api_key: str) -> Optional[openai.OpenAI]:
+    """Create a reusable OpenAI client resource."""
     if not api_key:
         return None
     try:
         client = openai.OpenAI(api_key=api_key)
-        # Optionally test by listing available models once
-        # client.models.list()  # skip to reduce startup latency; call only if necessary
+        # Verify key by listing models. Optional but good for startup check.
+        # client.models.list()
         return client
     except Exception as e:
         st.error(f"Failed to create OpenAI client: {e}")
@@ -96,49 +97,65 @@ def create_openai_client(api_key: str):
 # --- TOOL FUNCTIONS (local "functions" that model can call) ---
 
 def web_search(query: str) -> str:
-    # Placeholder: in production you'd run a real web search (Bing/Google API/Enterprise crawl).
-    results = [
-        {"title": "AI Trends 2025: GPT-5", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-5's improved reasoning ..."},
-        {"title": "OpenAI Releases GPT-5", "url": "https://example.com/gpt5-update", "snippet": "GPT-5 features enhanced multimodal..."},
-    ]
-    return safe_json_dumps({"query": query, "results": results})
+    """Searches the web for up-to-date information."""
+    # Placeholder: In a real app, you would integrate with a search API (e.g., Google, Bing, custom enterprise search).
+    # The current implementation provides static mock data.
+    try:
+        # Example of a real-world integration (pseudo-code)
+        # search_api_url = "https://api.example.com/search"
+        # headers = {"Authorization": f"Bearer {st.secrets['SEARCH_API_KEY']}"}
+        # response = requests.get(search_api_url, headers=headers, params={"q": query})
+        # response.raise_for_status()
+        # results = response.json().get("results", [])
+
+        results = [
+            {"title": "AI Trends 2025: GPT-5", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-5's improved reasoning ..."},
+            {"title": "OpenAI Releases GPT-5", "url": "https://example.com/gpt5-update", "snippet": "GPT-5 features enhanced multimodal..."},
+        ]
+        return safe_json_dumps({"query": query, "results": results})
+    except requests.RequestException as e:
+        return f"Error performing web search: {e}"
+    except Exception as e:
+        return f"Unexpected error in web_search: {e}"
 
 def code_review(code: str, language: str = "Python") -> str:
-    # A simple static review template; replace with a more powerful analyzer if desired.
+    """Reviews a block of code for errors, style, and efficiency."""
     review = {
         "language": language,
         "summary": "Basic static review completed.",
-        "recommendations": [
-            "Add docstrings and type annotations.",
-            "Add tests for edge cases.",
-            "Consider splitting long functions into smaller ones.",
-        ],
+        "recommendations": [],
     }
-    # Quick lint-style checks:
     if "TODO" in code or "FIXME" in code:
         review["recommendations"].append("Remove TODO/FIXME comments or address them.")
+    if "print(" in code and language.lower() == "python":
+        review["recommendations"].append("Consider using a proper logging library instead of print statements.")
+    if not review["recommendations"]:
+        review["recommendations"].append("No specific issues found. Good job!")
+
     return safe_json_dumps(review)
 
 def data_analysis(query: str, data: str) -> str:
-    # Expect data is CSV text; we attempt to provide a quick insight.
+    """Analyzes CSV data and answers questions about it."""
     try:
         from io import StringIO
         df = pd.read_csv(StringIO(data))
         insights = []
         insights.append(f"Rows: {len(df)}, Columns: {len(df.columns)}")
-        # Example quick check: numeric columns summary
+        
         numeric_cols = df.select_dtypes(include="number").columns.tolist()
         if numeric_cols:
             summary = df[numeric_cols].describe().to_dict()
             insights.append({"numeric_summary": summary})
-        # Try to match keywords in the query for canned responses
+        
         if "sales" in query.lower():
             insights.append("Detected 'sales' in query: consider grouping by date/region to analyze trends.")
+            
         return safe_json_dumps({"query": query, "insights": insights})
     except Exception as e:
-        return safe_json_dumps({"error": str(e)})
+        return safe_json_dumps({"error": f"Could not perform data analysis. Error: {e}"})
 
 def get_current_datetime() -> str:
+    """Returns the current date and time in ISO format."""
     return datetime.utcnow().isoformat() + "Z"
 
 # Convert to "functions" descriptors for the model
@@ -158,8 +175,8 @@ FUNCTIONS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "code": {"type": "string"},
-                "language": {"type": "string"},
+                "code": {"type": "string", "description": "The code to be reviewed."},
+                "language": {"type": "string", "description": "The programming language of the code."},
             },
             "required": ["code"],
         },
@@ -169,7 +186,10 @@ FUNCTIONS = [
         "description": "Analyzes CSV data and answers questions about it.",
         "parameters": {
             "type": "object",
-            "properties": {"query": {"type": "string"}, "data": {"type": "string"}},
+            "properties": {
+                "query": {"type": "string", "description": "The question to answer about the data."},
+                "data": {"type": "string", "description": "The data in CSV format."},
+            },
             "required": ["query", "data"],
         },
     },
@@ -184,17 +204,15 @@ LOCAL_TOOL_MAP = {
     "web_search": web_search,
     "code_review": code_review,
     "data_analysis": data_analysis,
-    "get_current_datetime": lambda: get_current_datetime(),
+    "get_current_datetime": get_current_datetime,
 }
 
 # --- MODEL / TOOL INVOCATION (function-calling pattern) ---
 
-def generate_response(messages: List[Dict[str, Any]], model: str) -> str:
+def response(messages: List[Dict[str, Any]], model: str) -> str:
     """
-    Generate a response using OpenAI function-calling:
-    - Send messages + functions to the model.
-    - If the model requests a function, call it, append the function result as a message with role "function",
-      then call the model again to get the final assistant message.
+    Generate a response using OpenAI function-calling.
+    Handles multi-turn tool use by appending tool outputs and calling the model again.
     """
     if not st.session_state.get("api_key"):
         return "Please enter your OpenAI API key in the Settings tab."
@@ -208,64 +226,70 @@ def generate_response(messages: List[Dict[str, Any]], model: str) -> str:
 
     try:
         # First call: ask model; allow it to request calling a function
-        response = client.chat.completions.create(
+        response_obj = client.chat.completions.create(
             model=model,
             messages=api_messages,
-            functions=FUNCTIONS,
-            function_call="auto",
+            tools=[{"type": "function", "function": f} for f in FUNCTIONS],
+            tool_choice="auto",
             temperature=st.session_state.get("temperature", 0.7),
         )
         st.session_state.usage_stats["requests"] += 1
+        st.session_state.usage_stats["tokens"] += response_obj.usage.total_tokens
 
-        choice = response.choices[0]
-        message = choice.message  # assistant message (may include function_call)
-        # If model requested a function:
-        if getattr(message, "function_call", None):
-            fc = message.function_call
-            func_name = fc.name
-            # Arguments might be a stringified JSON
-            arguments_text = fc.arguments or "{}"
-            try:
-                args = json.loads(arguments_text)
-            except Exception:
-                args = {"raw": arguments_text}
+        choice = response_obj.choices[0]
+        message = choice.message
+        tool_calls = message.tool_calls
 
-            # Add the assistant message that requested the function to the session messages
-            st.session_state.messages.append({"role": "assistant", "content": message.content or "", "function_call": {"name": func_name, "arguments": args}})
-
-            # Call the corresponding local function
-            func = LOCAL_TOOL_MAP.get(func_name)
-            if not func:
-                func_result = f"Error: function {func_name} not implemented."
-            else:
+        # If model requested a tool (function):
+        if tool_calls:
+            # Append the assistant message that requested the tool to session messages
+            st.session_state.messages.append(message)
+            
+            # Process each tool call
+            for tool_call in tool_calls:
+                function_name = tool_call.function.name
+                arguments_str = tool_call.function.arguments or "{}"
+                
                 try:
-                    # Support call signatures with/without kwargs
-                    if isinstance(args, dict):
-                        func_result = func(**args) if args else func()
-                    else:
-                        func_result = func(args)
-                except Exception as e:
-                    func_result = f"Error when executing function {func_name}: {e}"
+                    args = json.loads(arguments_str)
+                except json.JSONDecodeError:
+                    args = {"raw_arguments": arguments_str}
 
-            # Append function result as a message with role "function" (so model can consume it)
-            st.session_state.messages.append({"role": "function", "name": func_name, "content": func_result})
+                # Call the corresponding local tool function
+                tool_func = LOCAL_TOOL_MAP.get(function_name)
+                if not tool_func:
+                    func_result = f"Error: Tool '{function_name}' not implemented."
+                else:
+                    try:
+                        func_result = tool_func(**args)
+                    except Exception as e:
+                        func_result = f"Error executing tool '{function_name}': {e}"
+                
+                # Append tool output as a message with role "tool"
+                st.session_state.messages.append(
+                    {"tool_call_id": tool_call.id, "role": "tool", "name": function_name, "content": func_result}
+                )
 
-            # Re-call the model to produce a final assistant response using the function output
+            # Re-call the model to produce a final assistant response using the tool output
             api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.messages[-MAX_CONTEXT_MESSAGES:]
-            response2 = client.chat.completions.create(
+            
+            response_obj_2 = client.chat.completions.create(
                 model=model,
                 messages=api_messages,
                 temperature=st.session_state.get("temperature", 0.7),
             )
             st.session_state.usage_stats["requests"] += 1
-            final_choice = response2.choices[0]
+            st.session_state.usage_stats["tokens"] += response_obj_2.usage.total_tokens
+
+            final_choice = response_obj_2.choices[0]
             final_message = final_choice.message
             return final_message.content or ""
         else:
-            # Normal assistant reply (no function required)
-            st.session_state.messages.append({"role": "assistant", "content": message.content or ""})
+            # Normal assistant reply (no tool required)
+            st.session_state.messages.append(message)
             return message.content or ""
-    except openai.error.OpenAIError as e:
+            
+    except openai.APIError as e:
         return f"OpenAI API error: {e}"
     except Exception as e:
         return f"Unexpected error: {e}"
@@ -278,38 +302,22 @@ def render_chat_messages():
         role = msg.get("role", "user")
         with st.chat_message(role):
             content = msg.get("content", "")
-            # If function or assistant included a function_call meta, render it too
-            if role == "assistant" and msg.get("function_call"):
-                fc = msg["function_call"]
-                st.markdown(f"**Function request:** `{fc['name']}` with args:")
-                st.code(safe_json_dumps(fc["arguments"]), language="json")
+            if role == "assistant" and msg.get("tool_calls"):
+                for tc in msg["tool_calls"]:
+                    st.markdown(f"**Tool request:** `{tc.function.name}` with args:")
+                    st.code(safe_json_dumps(json.loads(tc.function.arguments)), language="json")
                 if content:
                     st.markdown(content)
-            elif role == "function":
-                name = msg.get("name", "function")
+            elif role == "tool":
+                name = msg.get("name", "tool")
                 st.info(f"📦 Tool output from `{name}`")
-                # try to pretty print JSON
                 try:
                     parsed = json.loads(content)
                     st.json(parsed)
                 except Exception:
-                    # fallback to code block for textual output
                     st.code(content)
             else:
-                # Detect triple-backtick fenced code blocks and render them via st.code
-                if isinstance(content, str) and "```" in content:
-                    # crude split: show text and code blocks separately
-                    parts = re.split(r"```(?:\w+)?", content)
-                    for i, part in enumerate(parts):
-                        # odd parts are code blocks (depends on how split falls); do a safer approach
-                        if i % 2 == 0:
-                            if part.strip():
-                                st.markdown(part)
-                        else:
-                            st.code(part)
-                else:
-                    if content:
-                        st.markdown(content)
+                st.markdown(content)
 
 def display_usage_stats():
     col1, col2, col3 = st.columns(3)
@@ -332,8 +340,8 @@ def save_conversation():
         filepath = os.path.join(CONVERSATIONS_DIR, filename)
         messages_to_save = []
         for m in st.session_state.messages:
-            # skip function/tool internal ephemeral fields if you prefer
-            to_store = {k: v for k, v in m.items() if k in ("role", "content", "name")}
+            # Clean up messages for saving
+            to_store = {k: v for k, v in m.items() if k in ("role", "content", "name", "tool_calls")}
             messages_to_save.append(to_store)
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(messages_to_save, f, indent=2, ensure_ascii=False)
@@ -362,7 +370,6 @@ def main():
     st.set_page_config(page_title="NeuraLink AI Assistant", page_icon="🤖", layout="wide")
     init_session_state()
 
-    # CSS (kept from original)
     st.markdown("""
     <style>
     .stApp { background-color: #f0f2f6; }
@@ -388,7 +395,6 @@ def main():
                 password = st.text_input("Password", type="password")
                 submitted = st.form_submit_button("Login")
                 if submitted:
-                    # demo credentials: replace with a proper auth provider in production
                     demo_users = {"admin": "admin2025", "analyst": "analyst2025", "manager": "manager2025"}
                     if username in demo_users and demo_users[username] == password:
                         st.session_state.authenticated = True
@@ -408,7 +414,7 @@ def main():
     sidebar.markdown("### Conversation")
     if sidebar.button("🆕 Start New Chat"):
         new_chat()
-        st.experimental_rerun()
+        st.rerun()
     if sidebar.button("💾 Save Conversation"):
         save_conversation()
     sidebar.markdown("---")
@@ -417,7 +423,7 @@ def main():
         sel = sidebar.selectbox("Load a conversation", options=[""] + conv_files, index=0, format_func=lambda x: (x.replace(f"{st.session_state.user_id}-", "").replace(".json", "") if x else "Select..."))
         if sel:
             load_conversation(sel)
-            st.experimental_rerun()
+            st.rerun()
 
     sidebar.markdown("---")
     sidebar.markdown("### Usage")
@@ -444,8 +450,7 @@ def main():
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 with st.spinner("Thinking..."):
                     reply = response(st.session_state.messages, st.session_state.model)
-                st.session_state.messages.append({"role": "assistant", "content": reply})
-                st.experimental_rerun()
+                st.rerun()
 
     with tab_tools:
         st.markdown("### Code Review")
@@ -469,7 +474,7 @@ def main():
                     df = pd.read_csv(uploaded)
                     csv_text = df.to_csv(index=False)
                     st.session_state.messages.append({"role": "user", "content": f"Analyze the following data:\n\n```csv\n{csv_text}\n```\nQuestion: {question}"})
-                    st.experimental_rerun()
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Could not read CSV: {e}")
 
