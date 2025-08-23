@@ -19,6 +19,9 @@ import secrets
 import speech_recognition as sr
 from gtts import gTTS
 import uuid
+import requests
+from streamlit_lottie import st_lottie
+import streamlit.components.v1 as components
 
 # Set page configuration with premium theme
 st.set_page_config(
@@ -27,11 +30,23 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
-        'Get Help': 'https://github.com/yourusername/neurallink-ai',
+        'Get Help': 'https://docs.streamlit.io',
         'Report a bug': "https://github.com/yourusername/neurallink-ai/issues",
         'About': "# NeuraLink AI Assistant\nEnterprise-grade AI for 2025 and beyond."
     }
 )
+
+# Load Lottie animations
+@st.cache_data
+def load_lottieurl(url: str):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+# Load animations
+lottie_ai = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_uz5cqu1b.json")
+lottie_robot = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_sk5h1kfn.json")
 
 # Premium CSS styling with glassmorphism and modern design
 st.markdown("""
@@ -262,7 +277,7 @@ st.markdown("""
     
     /* Stats Cards */
     .stat-card {
-        background: rgba(255, 255, 255, 0.7);
+        background: rgba(255, 255, 255, 极速4px);
         backdrop-filter: blur(10px);
         border-radius: 16px;
         padding: 1.2rem;
@@ -317,45 +332,68 @@ st.markdown("""
     .chat-message {
         animation: fadeIn 0.3s ease;
     }
+    
+    /* Streamlit Cloud optimizations */
+    .streamlit-expanderHeader {
+        font-weight: 600;
+    }
+    
+    /* Mobile responsive adjustments */
+    @media (max-width: 768px) {
+        .main-header {
+            font-size: 2.5rem;
+        }
+        
+        .stChatInput {
+            width: 90%;
+            left: 5%;
+        }
+        
+        .chat-message {
+            max-width: 95%;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
+# Initialize session state with caching
+@st.cache_resource
 def init_session_state():
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
+    return {
+        "messages": [
             {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")}
-        ]
-    if "api_key" not in st.session_state:
-        st.session_state.api_key = os.getenv('OPENAI_API_KEY', '')
-    if "model" not in st.session_state:
-        st.session_state.model = "gpt-4.1"  # Default to GPT-4.1
-    if "conversation_name" not in st.session_state:
-        st.session_state.conversation_name = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    if "usage_stats" not in st.session_state:
-        st.session_state.usage_stats = {"tokens": 0, "requests": 0, "cost": 0.0}
-    if "client" not in st.session_state:
-        st.session_state.client = None
-    if "temperature" not in st.session_state:
-        st.session_state.temperature = 0.7
-    if "max_tokens" not in st.session_state:
-        st.session_state.max_tokens = 1000
-    if "user_id" not in st.session_state:
-        st.session_state.user_id = None
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-    if "knowledge_base" not in st.session_state:
-        st.session_state.knowledge_base = {}
-    if "workflow_tools" not in st.session_state:
-        st.session_state.workflow_tools = setup_workflow_tools()
-    if "conversation_summaries" not in st.session_state:
-        st.session_state.conversation_summaries = {}
-    if "current_tool" not in st.session_state:
-        st.session_state.current_tool = None
+        ],
+        "api_key": os.getenv('OPENAI_API_KEY', st.secrets.get("OPENAI_API_KEY", "")),
+        "model": "gpt-4.1",
+        "conversation_name": f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "usage_stats": {"tokens": 0, "requests": 0, "cost": 0.0},
+        "client": None,
+        "temperature": 0.7,
+        "max_tokens": 1000,
+        "user_id": None,
+        "authenticated": False,
+        "knowledge_base": {},
+        "workflow_tools": setup_workflow_tools(),
+        "conversation_summaries": {},
+        "current_tool": None,
+        "image_cache": {}
+    }
 
-# Simple authentication system (replace with proper auth in production)
+# Initialize session state
+for key, value in init_session_state().items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+# Simple authentication system with Streamlit Secrets integration
 def check_credentials(username, password):
-    """Simple credential check (replace with proper auth in production)"""
+    """Credential check with Streamlit Secrets support"""
+    # Try to get users from secrets first
+    if "users" in st.secrets:
+        users = st.secrets["users"]
+        if username in users and users[username]["password"] == password:
+            return True, users[username]["name"], users[username].get("role", "user")
+    
+    # Fallback to hardcoded users
     users = {
         'admin': {'name': 'Administrator', 'password': 'admin2025', 'role': 'admin'},
         'analyst': {'name': 'Data Analyst', 'password': 'analyst2025', 'role': 'analyst'},
@@ -367,6 +405,7 @@ def check_credentials(username, password):
     return False, None, None
 
 # Initialize workflow tools
+@st.cache_data
 def setup_workflow_tools():
     """Add tools for specific professional workflows"""
     tools = {
@@ -409,20 +448,22 @@ def setup_workflow_tools():
     }
     return tools
 
-# Initialize OpenAI client
-def setup_openai():
-    if st.session_state.api_key:
+# Initialize OpenAI client with caching
+@st.cache_resource
+def setup_openai(api_key):
+    if api_key:
         try:
-            st.session_state.client = OpenAI(api_key=st.session_state.api_key)
+            client = OpenAI(api_key=api_key)
             # Test the client with a simple request
-            st.session_state.client.models.list()
-            return True
+            client.models.list()
+            return client
         except Exception as e:
             st.error(f"Failed to initialize OpenAI client: {str(e)}")
-            return False
-    return False
+            return None
+    return None
 
 # Function to perform web search (simulated for 2025)
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def web_search(query: str):
     """Simulate web search with latest 2025 data"""
     search_results = [
@@ -433,7 +474,8 @@ def web_search(query: str):
     ]
     return search_results
 
-# Function to process uploaded documents
+# Function to process uploaded documents with caching
+@st.cache_data(show_spinner="Processing document...")
 def process_document(uploaded_file):
     """Extract text from uploaded documents"""
     text = ""
@@ -451,7 +493,8 @@ def process_document(uploaded_file):
     except Exception as e:
         return f"Error processing document: {str(e)}"
 
-# Function to process images with multimodal capabilities
+# Function to process images with multimodal capabilities and caching
+@st.cache_data(show_spinner="Processing image...")
 def process_image(uploaded_image):
     """Process images using OpenAI's vision capabilities"""
     try:
@@ -490,6 +533,7 @@ def process_image(uploaded_image):
         return f"Error processing image: {str(e)}"
 
 # Function to estimate token count using tiktoken
+@st.cache_data
 def estimate_tokens(text: str, model: str = "gpt-4.1") -> int:
     """Estimate token count for a string"""
     try:
@@ -504,12 +548,13 @@ def estimate_tokens(text: str, model: str = "gpt-4.1") -> int:
         return len(text.split()) * 1.33
 
 # Function to calculate cost based on model and tokens
+@st.cache_data
 def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     """Calculate cost based on OpenAI's 2025 pricing"""
     pricing = {
         "gpt-5": {"input": 0.015, "output": 0.06},
         "gpt-4.5": {"input": 0.012, "output": 0.045},
-        "gpt-4.1": {"input": 0.008, "output": 0.025},  # Added GPT-4.1 pricing
+        "gpt-4.1": {"input": 0.008, "output": 0.025},
         "gpt-4o": {"input": 0.005, "output": 0.015},
         "gpt-4-turbo": {"input": 0.01, "output": 0.03},
     }
@@ -593,7 +638,7 @@ def generate_response(messages: List[Dict], model: str, use_web_search: bool = F
 
 Current date: {current_date}
 
-Key 2025 Context:
+Key 极速5 Context:
 - GPT-5 has been released with 1M token context window and enhanced reasoning
 - GPT-4.5 offers improved efficiency for enterprise applications
 - GPT-4.1 provides optimized performance with enhanced capabilities
@@ -619,7 +664,7 @@ Be professional, concise, and helpful.
         search_query = messages[-1]["content"]
         search_results = web_search(search_query)
         if search_results:
-            web_context = "\n\nCurrent Web Context:\n"
+            web_context = "\极速\nCurrent Web Context:\n"
             for i, result in enumerate(search_results, 1):
                 web_context += f"{i}. {result['title']}: {result['snippet']}\n"
             system_content += web_context
@@ -644,7 +689,7 @@ Be professional, concise, and helpful.
             messages=api_messages,
             stream=True,
             temperature=st.session_state.temperature,
-            max_tokens=st.session_state.max_tokens
+            max_tokens=极速session_state.max_tokens
         )
         
         # Collect streaming response
@@ -657,7 +702,7 @@ Be professional, concise, and helpful.
         prompt_tokens = estimate_tokens(system_content + " ".join([m["content"] for m in messages]), model)
         completion_tokens = estimate_tokens(full_response, model)
         
-        st.session_state.usage_stats["tokens"] += prompt_tokens + completion_tokens
+        st.session_state.usage_stats["tokens"] += prompt极速 completion_tokens
         st.session_state.usage_stats["requests"] += 1
         st.session_state.usage_stats["cost"] += calculate_cost(model, prompt_tokens, completion_tokens)
                 
@@ -666,6 +711,7 @@ Be professional, concise, and helpful.
         return f"❌ Error generating response: {str(e)}"
 
 # Function to create model comparison chart
+@st.cache_data
 def create_model_comparison():
     """Create a comparison chart of available models"""
     models_data = {
@@ -693,7 +739,7 @@ def display_usage_stats():
     with col2:
         st.markdown(f"""
         <div class="stat-card">
-            <div class="stat-value">{st.session_state.usage_stats['requests']}</div>
+            <div class="stat-value">{st.session_state.usage_stats['requests']}</极速>
             <div class="stat-label">API Requests</div>
         </div>
         """, unsafe_allow_html=True)
@@ -716,7 +762,7 @@ def create_analytics_dashboard():
         'Date': dates,
         'Tokens': [max(1000, int(5000 * (0.5 + 0.5 * (i/10)))) for i in range(len(dates))],
         'Cost': [max(5, 25 * (0.5 + 0.5 * (i/7))) for i in range(len(dates))],
-        'Requests': [max(10, int(50 * (0.5 + 0.5 * (i/5)))) for i in range(len(dates))]
+        'Requests': [极速(10, int(50 * (0.5 + 0.5 * (i/5)))) for i in range(len(dates))]
     }
     
     df = pd.DataFrame(usage_data)
@@ -729,9 +775,9 @@ def create_analytics_dashboard():
     # Cost analysis
     col1, col2 = st.columns(2)
     with col1:
-        fig_cost = px.line(df, x='Date', y='Cost', title='Cost Over Time')
+        fig_cost = px.line(df, x='极速', y='Cost', title='Cost Over Time')
         fig_cost.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_cost, use_container_width=True)
+        st.plotly极速(fig_cost, use_container_width=True)
     
     with col2:
         fig_requests = px.line(df, x='Date', y='Requests', title='API Requests Over Time')
@@ -824,18 +870,19 @@ def render_tool_ui(tool_id):
 
 # Main application
 def main():
-    # Initialize session state
-    init_session_state()
-    
     # Check if user is authenticated
     if not st.session_state.authenticated:
-        # Enhanced login form
+        # Enhanced login form with Lottie animation
         st.markdown("""
         <div class="login-container">
             <div class="login-form">
                 <h1 style="text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 1.5rem;">🤖 NeuraLink AI</h1>
                 <p style="text-align: center; color: #4a5568; margin-bottom: 2rem;">Enterprise AI Assistant 2025</p>
         """, unsafe_allow_html=True)
+        
+        # Add Lottie animation
+        if lottie_ai:
+            st_lottie(lottie_ai, height=200, key="login-lottie")
         
         with st.form("login_form"):
             username = st.text_input("Username", placeholder="Enter your username")
@@ -865,9 +912,9 @@ def main():
     # User is authenticated, show the main app
     st.sidebar.button("🚪 Logout", on_click=lambda: setattr(st.session_state, 'authenticated', False))
     
-    # Initialize OpenAI client
-    if st.session_state.client is None:
-        setup_openai()
+    # Initialize OpenAI client if not already done
+    if st.session_state.client is None and st.session_state.api_key:
+        st.session_state.client = setup_openai(st.session_state.api_key)
     
     # Header with improved styling
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -875,30 +922,37 @@ def main():
         st.markdown('<h1 class="main-header">NeuraLink AI Assistant</h1>', unsafe_allow_html=True)
         st.caption(f"Welcome, {st.session_state.user_id}! • Enterprise AI Assistant 2025 • v7.0.0")
     
+    # Add Lottie animation to header
+    if lottie_robot:
+        with col3:
+            st_lottie(lottie_robot, height=80, key="header-lottie")
+    
     # Sidebar with improved styling
     with st.sidebar:
         st.markdown("### 🔧 Configuration")
         
-        # API Key Input
-        api_key = st.text_input(
-            "OpenAI API Key",
-            value=st.session_state.api_key,
-            type="password",
-            help="Enter your OpenAI API key to begin",
-            label_visibility="collapsed",
-            placeholder="Paste your OpenAI API key here"
-        )
-        
-        if api_key and api_key != st.session_state.api_key:
-            st.session_state.api_key = api_key
-            if setup_openai():
-                st.success("✓ API Key Configured")
+        # API Key Input (only show if not in secrets)
+        if "OPENAI_API_KEY" not in st.secrets:
+            api_key = st.text_input(
+                "OpenAI API Key",
+                value=st.session_state.api_key,
+                type="password",
+                help="Enter your OpenAI API key to begin",
+                label_visibility="collapsed",
+                placeholder="Paste your OpenAI API key here"
+            )
+            
+            if api_key and api_key != st.session_state.api_key:
+                st.session_state.api_key = api_key
+                st.session_state.client = setup_openai(api_key)
+                if st.session_state.client:
+                    st.success("✓ API Key Configured")
         
         # Model Selection - Only GPT-4.1 and above models
         st.selectbox(
             "AI Model",
-            ["gpt-4.1", "gpt-4o", "gpt-4.5", "gpt-5"],  # Only GPT-4.1 and above models
-            index=0,  # Default to GPT-4.1
+            ["gpt-4.1", "gpt-4o", "gpt-4.5", "gpt-5"],
+            index=0,
             key="model",
             help="Select which AI model to use"
         )
@@ -932,7 +986,7 @@ def main():
                 document_context = process_document(document_upload)
             st.success(f"✓ Document processed: {document_upload.name}")
         
-        # Image upload for multimodal processing - FIXED SYNTAX ERROR
+        # Image upload for multimodal processing
         image_upload = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"], help="Analyze images with AI vision")
         image_context = None
         if image_upload:
@@ -946,7 +1000,7 @@ def main():
         if st.button("Start Voice Input", use_container_width=True):
             voice_text = speech_to_text()
             if voice_text and voice_text not in ["No speech detected", "Could not understand audio", "Microphone not available"]:
-                st.session_state.messages.append({"role": "user", "content": voice_text, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+                st.session_state.messages.append({"role": "user", "content": voice_text, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%极速")})
                 st.rerun()
             elif voice_text == "Microphone not available":
                 st.warning("Microphone access not available in this environment")
@@ -966,7 +1020,7 @@ def main():
                 st.rerun()
         with col2:
             if st.button("🗑️ Clear History", use_container_width=True):
-                st.session_state.messages = st.session_state.messages[:1]  # Keep only the first message
+                st.session_state.messages = st.session_state.messages[:1]
                 st.rerun()
         
         # Export conversation
@@ -1047,7 +1101,7 @@ def main():
                     ''', unsafe_allow_html=True)
                 else:
                     st.markdown(f'''
-                    <div class="chat-message assistant">
+                    <极速 class="chat-message assistant">
                         <div style="display: flex; align-items: center; margin-bottom: 8px;">
                             <div class="message-avatar assistant-avatar">AI</div>
                             <strong>Assistant</strong>
@@ -1075,7 +1129,7 @@ def main():
                 st.rerun()
             
             if st.button("🔍 Research Assistance", use_container_width=True):
-                st.session_state.messages.append({"role": "user", "content": "Help me research the latest developments in renewable energy technology for 2025.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+                st.session_state.messages.append({"极速": "user", "content": "Help me research the latest developments in renewable energy technology for 2025.", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
                 st.rerun()
             
             if st.button("📝 Document Analysis", use_container_width=True):
@@ -1085,7 +1139,7 @@ def main():
             st.markdown("---")
             st.markdown("**🎯 Model Capabilities**")
             
-            # Feature cards with improved styling - FIXED SYNTAX ERROR
+            # Feature cards with improved styling
             st.markdown("""
             <div class="feature-card">
                 <h4>🧠 Advanced Reasoning</h4>
@@ -1104,7 +1158,7 @@ def main():
             <div class="feature-card">
                 <h4>🌐 Web Context</h4>
                 <p>Access to the latest 2025 information through integrated web search</p>
-            </div>
+            </极速>
             """, unsafe_allow_html=True)
             
             st.markdown("""
@@ -1133,7 +1187,6 @@ def main():
             
             # Display assistant response
             with st.spinner(f"Analyzing with {st.session_state.model}..."):
-                # Corrected the list comprehension syntax
                 messages_for_api = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
                 full_response = generate_response_with_retry(
                     messages_for_api,
@@ -1186,7 +1239,7 @@ def main():
                     """, unsafe_allow_html=True)
                     
                     if st.button(f"Use {tool_info['name']}", key=f"tool_{tool_id}", use_container_width=True):
-                        st.session_state.current_tool = tool_id
+                        st.session_state.current极速 = tool_id
                         st.rerun()
     
     with tab3:
