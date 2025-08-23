@@ -1,4 +1,4 @@
-# improved_neuralink_app_v2.py
+# fixed_neuralink_app.py
 import streamlit as st
 import openai
 import os
@@ -13,8 +13,6 @@ from streamlit_lottie import st_lottie
 import re
 
 # --- CONFIG / CONSTANTS ---
-# Use Streamlit secrets for production. This local fallback is for local testing.
-OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 CONVERSATIONS_DIR = "conversations"
 os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
 SYSTEM_PROMPT = (
@@ -32,7 +30,6 @@ def sanitize_filename(name: str) -> str:
     return name[:200]
 
 def safe_json_dumps(obj: Any) -> str:
-    """Safely dump a Python object to a JSON string."""
     try:
         return json.dumps(obj, indent=2, ensure_ascii=False)
     except Exception:
@@ -56,7 +53,7 @@ def init_session_state():
         "authenticated": False,
         "user_id": None,
         "user_role": None,
-        "api_key": OPENAI_API_KEY,
+        "api_key": os.getenv("OPENAI_API_KEY", ""),
         "client_initialized": False,
         "messages": [
             {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?"}
@@ -81,13 +78,13 @@ def logout():
 # --- OPENAI CLIENT SETUP ---
 
 @st.cache_resource
-def create_openai_client(api_key: str) -> Optional[openai.OpenAI]:
-    """Create a reusable OpenAI client resource."""
+def create_openai_client(api_key: str):
+    """Create an OpenAI client resource. Use Streamlit cached resource for reuse."""
     if not api_key:
         return None
     try:
         client = openai.OpenAI(api_key=api_key)
-        # Verify key by listing models. Optional but good for startup check.
+        # Optionally test by listing available models once
         # client.models.list()
         return client
     except Exception as e:
@@ -97,65 +94,49 @@ def create_openai_client(api_key: str) -> Optional[openai.OpenAI]:
 # --- TOOL FUNCTIONS (local "functions" that model can call) ---
 
 def web_search(query: str) -> str:
-    """Searches the web for up-to-date information."""
-    # Placeholder: In a real app, you would integrate with a search API (e.g., Google, Bing, custom enterprise search).
-    # The current implementation provides static mock data.
-    try:
-        # Example of a real-world integration (pseudo-code)
-        # search_api_url = "https://api.example.com/search"
-        # headers = {"Authorization": f"Bearer {st.secrets['SEARCH_API_KEY']}"}
-        # response = requests.get(search_api_url, headers=headers, params={"q": query})
-        # response.raise_for_status()
-        # results = response.json().get("results", [])
-
-        results = [
-            {"title": "AI Trends 2025: GPT-5", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-5's improved reasoning ..."},
-            {"title": "OpenAI Releases GPT-5", "url": "https://example.com/gpt5-update", "snippet": "GPT-5 features enhanced multimodal..."},
-        ]
-        return safe_json_dumps({"query": query, "results": results})
-    except requests.RequestException as e:
-        return f"Error performing web search: {e}"
-    except Exception as e:
-        return f"Unexpected error in web_search: {e}"
+    # Placeholder: in production you'd run a real web search (Bing/Google API/Enterprise crawl).
+    results = [
+        {"title": "AI Trends 2025: GPT-5", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-5's improved reasoning ..."},
+        {"title": "OpenAI Releases GPT-5", "url": "https://example.com/gpt5-update", "snippet": "GPT-5 features enhanced multimodal..."},
+    ]
+    return safe_json_dumps({"query": query, "results": results})
 
 def code_review(code: str, language: str = "Python") -> str:
-    """Reviews a block of code for errors, style, and efficiency."""
+    # A simple static review template; replace with a more powerful analyzer if desired.
     review = {
         "language": language,
         "summary": "Basic static review completed.",
-        "recommendations": [],
+        "recommendations": [
+            "Add docstrings and type annotations.",
+            "Add tests for edge cases.",
+            "Consider splitting long functions into smaller ones.",
+        ],
     }
+    # Quick lint-style checks:
     if "TODO" in code or "FIXME" in code:
         review["recommendations"].append("Remove TODO/FIXME comments or address them.")
-    if "print(" in code and language.lower() == "python":
-        review["recommendations"].append("Consider using a proper logging library instead of print statements.")
-    if not review["recommendations"]:
-        review["recommendations"].append("No specific issues found. Good job!")
-
     return safe_json_dumps(review)
 
 def data_analysis(query: str, data: str) -> str:
-    """Analyzes CSV data and answers questions about it."""
+    # Expect data is CSV text; we attempt to provide a quick insight.
     try:
         from io import StringIO
         df = pd.read_csv(StringIO(data))
         insights = []
         insights.append(f"Rows: {len(df)}, Columns: {len(df.columns)}")
-        
+        # Example quick check: numeric columns summary
         numeric_cols = df.select_dtypes(include="number").columns.tolist()
         if numeric_cols:
             summary = df[numeric_cols].describe().to_dict()
             insights.append({"numeric_summary": summary})
-        
+        # Try to match keywords in the query for canned responses
         if "sales" in query.lower():
             insights.append("Detected 'sales' in query: consider grouping by date/region to analyze trends.")
-            
         return safe_json_dumps({"query": query, "insights": insights})
     except Exception as e:
-        return safe_json_dumps({"error": f"Could not perform data analysis. Error: {e}"})
+        return safe_json_dumps({"error": str(e)})
 
 def get_current_datetime() -> str:
-    """Returns the current date and time in ISO format."""
     return datetime.utcnow().isoformat() + "Z"
 
 # Convert to "functions" descriptors for the model
@@ -175,8 +156,8 @@ FUNCTIONS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "code": {"type": "string", "description": "The code to be reviewed."},
-                "language": {"type": "string", "description": "The programming language of the code."},
+                "code": {"type": "string"},
+                "language": {"type": "string"},
             },
             "required": ["code"],
         },
@@ -186,10 +167,7 @@ FUNCTIONS = [
         "description": "Analyzes CSV data and answers questions about it.",
         "parameters": {
             "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "The question to answer about the data."},
-                "data": {"type": "string", "description": "The data in CSV format."},
-            },
+            "properties": {"query": {"type": "string"}, "data": {"type": "string"}},
             "required": ["query", "data"],
         },
     },
@@ -211,8 +189,10 @@ LOCAL_TOOL_MAP = {
 
 def response(messages: List[Dict[str, Any]], model: str) -> str:
     """
-    Generate a response using OpenAI function-calling.
-    Handles multi-turn tool use by appending tool outputs and calling the model again.
+    Generate a response using OpenAI function-calling:
+    - Send messages + functions to the model.
+    - If the model requests a function, call it, append the function result as a message with role "tool",
+      then call the model again to get the final assistant message.
     """
     if not st.session_state.get("api_key"):
         return "Please enter your OpenAI API key in the Settings tab."
@@ -225,27 +205,28 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
     api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-MAX_CONTEXT_MESSAGES:]
 
     try:
-        # First call: ask model; allow it to request calling a function
+        # First call: ask model; allow it to request calling a tool (function)
         response_obj = client.chat.completions.create(
             model=model,
             messages=api_messages,
-            tools=[{"type": "function", "function": f} for f in FUNCTIONS],
-            tool_choice="auto",
+            tools=[{"type": "function", "function": f} for f in FUNCTIONS], # Use the correct 'tools' parameter
+            tool_choice="auto", # Use the correct 'tool_choice' parameter
             temperature=st.session_state.get("temperature", 0.7),
         )
         st.session_state.usage_stats["requests"] += 1
-        st.session_state.usage_stats["tokens"] += response_obj.usage.total_tokens
-
+        
         choice = response_obj.choices[0]
-        message = choice.message
+        message = choice.message # assistant message (may include tool_calls)
         tool_calls = message.tool_calls
-
+        
         # If model requested a tool (function):
         if tool_calls:
-            # Append the assistant message that requested the tool to session messages
+            # Append the assistant message that requested the tool to the session messages
+            # Note: The raw message object from the API is now a ToolCall object.
+            # We must convert it to a dictionary for Streamlit's chat history.
             st.session_state.messages.append(message)
-            
-            # Process each tool call
+
+            # Re-call the model with the tool output
             for tool_call in tool_calls:
                 function_name = tool_call.function.name
                 arguments_str = tool_call.function.arguments or "{}"
@@ -263,32 +244,32 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                     try:
                         func_result = tool_func(**args)
                     except Exception as e:
-                        func_result = f"Error executing tool '{function_name}': {e}"
-                
-                # Append tool output as a message with role "tool"
-                st.session_state.messages.append(
-                    {"tool_call_id": tool_call.id, "role": "tool", "name": function_name, "content": func_result}
-                )
+                        func_result = f"Error when executing tool '{function_name}': {e}"
+
+                # Append function result as a message with role "tool"
+                st.session_state.messages.append({
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": function_name,
+                    "content": func_result
+                })
 
             # Re-call the model to produce a final assistant response using the tool output
             api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.messages[-MAX_CONTEXT_MESSAGES:]
-            
-            response_obj_2 = client.chat.completions.create(
+            response2 = client.chat.completions.create(
                 model=model,
                 messages=api_messages,
                 temperature=st.session_state.get("temperature", 0.7),
             )
             st.session_state.usage_stats["requests"] += 1
-            st.session_state.usage_stats["tokens"] += response_obj_2.usage.total_tokens
-
-            final_choice = response_obj_2.choices[0]
+            final_choice = response2.choices[0]
             final_message = final_choice.message
+            st.session_state.messages.append(final_message) # Append final response
             return final_message.content or ""
         else:
-            # Normal assistant reply (no tool required)
+            # Normal assistant reply (no function required)
             st.session_state.messages.append(message)
             return message.content or ""
-            
     except openai.APIError as e:
         return f"OpenAI API error: {e}"
     except Exception as e:
@@ -302,10 +283,14 @@ def render_chat_messages():
         role = msg.get("role", "user")
         with st.chat_message(role):
             content = msg.get("content", "")
+            # If assistant included tool_calls, render them
             if role == "assistant" and msg.get("tool_calls"):
-                for tc in msg["tool_calls"]:
+                for tc in msg.tool_calls:
                     st.markdown(f"**Tool request:** `{tc.function.name}` with args:")
-                    st.code(safe_json_dumps(json.loads(tc.function.arguments)), language="json")
+                    try:
+                        st.code(json.dumps(json.loads(tc.function.arguments), indent=2), language="json")
+                    except json.JSONDecodeError:
+                        st.code(tc.function.arguments)
                 if content:
                     st.markdown(content)
             elif role == "tool":
@@ -338,11 +323,15 @@ def save_conversation():
         conversation_name = sanitize_filename(st.session_state.get("conversation_name", f"conv_{int(time.time())}"))
         filename = f"{st.session_state['user_id']}-{conversation_name}.json"
         filepath = os.path.join(CONVERSATIONS_DIR, filename)
+        
+        # Save messages in a JSON-serializable format
         messages_to_save = []
         for m in st.session_state.messages:
-            # Clean up messages for saving
-            to_store = {k: v for k, v in m.items() if k in ("role", "content", "name", "tool_calls")}
-            messages_to_save.append(to_store)
+            if hasattr(m, "model_dump"):
+                messages_to_save.append(m.model_dump())
+            else:
+                messages_to_save.append(m)
+        
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(messages_to_save, f, indent=2, ensure_ascii=False)
         st.success("Conversation saved.")
@@ -370,6 +359,7 @@ def main():
     st.set_page_config(page_title="NeuraLink AI Assistant", page_icon="🤖", layout="wide")
     init_session_state()
 
+    # CSS (kept from original)
     st.markdown("""
     <style>
     .stApp { background-color: #f0f2f6; }
@@ -449,7 +439,7 @@ def main():
             if prompt:
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 with st.spinner("Thinking..."):
-                    reply = response(st.session_state.messages, st.session_state.model)
+                    response(st.session_state.messages, st.session_state.model)
                 st.rerun()
 
     with tab_tools:
@@ -492,7 +482,6 @@ def main():
 
     with tab_settings:
         st.markdown("### OpenAI API Settings")
-        # In production prefer using Streamlit secrets (st.secrets) or a secure vault
         api_text = st.text_input("OpenAI API Key", type="password", value=st.session_state.get("api_key", ""))
         if api_text and api_text != st.session_state.get("api_key", ""):
             st.session_state.api_key = api_text
