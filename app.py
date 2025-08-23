@@ -16,7 +16,6 @@ import binascii
 from pathlib import Path
 
 # --- CONFIG / CONSTANTS ---
-# Use Path for better cross-platform compatibility
 CONVERSATIONS_DIR = Path("conversations")
 CONVERSATIONS_DIR.mkdir(exist_ok=True)
 
@@ -24,7 +23,7 @@ SYSTEM_PROMPT = (
     "You are Enterprise AI Assistant 2025, a professional assistant with knowledge up to December 2025. "
     "You are an expert in using tools to perform tasks."
 )
-MAX_CONTEXT_MESSAGES = 12  # keep context bounded for token limits
+MAX_CONTEXT_MESSAGES = 12
 DB_PATH = Path("app.db")
 
 # --- UTILITIES ---
@@ -60,7 +59,6 @@ def init_db(db_path: Path = DB_PATH) -> sqlite3.Connection:
     """Initialize and return a SQLite connection (cached resource)."""
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
     c = conn.cursor()
-    # Users table
     c.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +67,6 @@ def init_db(db_path: Path = DB_PATH) -> sqlite3.Connection:
         role TEXT NOT NULL DEFAULT 'user'
     );
     """)
-    # Conversations: name unique per user
     c.execute("""
     CREATE TABLE IF NOT EXISTS conversations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,7 +78,6 @@ def init_db(db_path: Path = DB_PATH) -> sqlite3.Connection:
         FOREIGN KEY(user_id) REFERENCES users(id)
     );
     """)
-    # Usage tracking (simple schema)
     c.execute("""
     CREATE TABLE IF NOT EXISTS usage (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,7 +150,6 @@ def save_conversation_db(conn: sqlite3.Connection, user_id: int, name: str, mess
         """, (user_id, name, payload))
         conn.commit()
     except sqlite3.OperationalError:
-        # Fallback for older SQLite versions
         c.execute("DELETE FROM conversations WHERE user_id = ? AND name = ?", (user_id, name))
         c.execute("INSERT INTO conversations (user_id, name, data) VALUES (?, ?, ?)", (user_id, name, payload))
         conn.commit()
@@ -188,7 +183,6 @@ def add_usage(conn: sqlite3.Connection, user_id: int, tokens: int = 0, requests:
           cost = cost + excluded.cost
         """, (user_id, today, tokens, requests, cost))
     except sqlite3.OperationalError:
-        # fallback for older SQLite versions
         c.execute("SELECT id FROM usage WHERE user_id = ? AND date = ?", (user_id, today))
         if c.fetchone():
             c.execute("UPDATE usage SET tokens = tokens + ?, requests = requests + ?, cost = cost + ? WHERE user_id = ? AND date = ?",
@@ -238,7 +232,6 @@ def create_openai_client(api_key: str):
         return None
     try:
         client = openai.OpenAI(api_key=api_key)
-        # Verify the key is valid with a simple model list call
         client.models.list()
         st.session_state["client_initialized"] = True
         return client
@@ -250,7 +243,6 @@ def create_openai_client(api_key: str):
 # --- LOCAL TOOL FUNCTIONS ---
 
 def web_search(query: str) -> str:
-    # Placeholder results
     results = [
         {"title": "AI Trends 2025: GPT-5", "url": "https://example.com/ai-trends-2025", "snippet": "GPT-5's improved reasoning ..."},
         {"title": "OpenAI Releases GPT-5", "url": "https://example.com/gpt5-update", "snippet": "GPT-5 features enhanced multimodal..."},
@@ -290,7 +282,6 @@ def data_analysis(query: str, data: str) -> str:
 def get_current_datetime() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
-# Convert to "functions" descriptors for the model
 FUNCTIONS = [
     {
         "name": "web_search",
@@ -356,11 +347,9 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
     if client is None:
         return "OpenAI client could not be initialized. Check your API key."
 
-    # Build the API messages (system + last N messages)
     api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-MAX_CONTEXT_MESSAGES:]
 
     try:
-        # Primary call to the model
         response_obj = client.chat.completions.create(
             model=model,
             messages=api_messages,
@@ -375,7 +364,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
 
         tool_calls = message.tool_calls
         if tool_calls:
-            # Append assistant's request to call a tool
             st.session_state.messages.append(message)
             
             for tool_call in tool_calls:
@@ -403,7 +391,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                     "content": func_result
                 })
 
-            # Now call the model again to finalize
             api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.messages[-MAX_CONTEXT_MESSAGES:]
             response2 = client.chat.completions.create(
                 model=model,
@@ -414,18 +401,15 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
             final_message = response2.choices[0].message
             st.session_state.messages.append(final_message)
 
-            # Update usage table
             if st.session_state.get("user_id"):
                 conn = init_db()
                 tokens = response2.usage.total_tokens
-                # Note: Cost calculation is model-dependent, this is a placeholder
                 add_usage(conn, st.session_state["user_id"], tokens=tokens)
 
             return final_message.content or ""
         else:
             st.session_state.messages.append(message)
 
-            # Update usage table
             if st.session_state.get("user_id"):
                 conn = init_db()
                 tokens = response_obj.usage.total_tokens
@@ -442,7 +426,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
 def render_chat_messages():
     """Render all messages in the session with better formatting for code and JSON."""
     for msg in st.session_state.messages:
-        # Normalize the message to a dictionary for safe access
         msg = _normalize_message(msg)
         role = msg.get("role", "user")
         with st.chat_message(role):
@@ -467,12 +450,16 @@ def render_chat_messages():
 
 def display_usage_stats():
     """Display usage statistics in a clean card format."""
-    # Fetch total stats from DB instead of session state for accuracy
     conn = init_db()
     c = conn.cursor()
     c.execute("SELECT SUM(tokens), SUM(requests), SUM(cost) FROM usage WHERE user_id = ?", (st.session_state.get("user_id"),))
     result = c.fetchone()
-    total_tokens, total_requests, total_cost = result if result else (0, 0, 0.0)
+    
+    # Fix: Safely handle the case where a user has no usage data
+    if result and result[0] is not None:
+        total_tokens, total_requests, total_cost = result
+    else:
+        total_tokens, total_requests, total_cost = 0, 0, 0.0
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -525,7 +512,6 @@ def main():
     init_session_state()
     conn = init_db()
 
-    # CSS
     st.markdown("""
     <style>
     .stApp { background-color: #f0f2f6; }
@@ -539,7 +525,6 @@ def main():
     lottie_ai = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_uz5cqu1b.json")
     lottie_robot = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_sk5h1kfn.json")
 
-    # --- Login / Register screen ---
     if not st.session_state.get("authenticated", False):
         st.markdown('<div style="display:flex;justify-content:center;align-items:center;height:80vh">', unsafe_allow_html=True)
         with st.container():
@@ -578,7 +563,6 @@ def main():
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    # --- Main UI ---
     sidebar = st.sidebar
     sidebar.button("🚪 Logout", on_click=logout)
     sidebar.markdown(f"**Signed in as:** {st.session_state.get('username')}")
@@ -592,7 +576,6 @@ def main():
 
     sidebar.markdown("---")
 
-    # List conversations from DB for this user
     conv_rows = get_user_conversations(conn, st.session_state["user_id"])
     conv_names = [r[0] for r in conv_rows]
     if conv_names:
@@ -658,7 +641,6 @@ def main():
         st.markdown("### Usage Analytics")
         if st.session_state.get("user_id"):
             try:
-                # Query the actual usage data from the database
                 conn = init_db()
                 query = "SELECT date, tokens, requests, cost FROM usage WHERE user_id = ? ORDER BY date ASC"
                 df_usage = pd.read_sql_query(query, conn, params=(st.session_state["user_id"],))
