@@ -572,9 +572,21 @@ def render_tool_ui(tool_id: str):
     if tool_info:
         st.markdown(f'<div class="subheader">{tool_info["icon"]} {tool_info["name"]} Assistant</div>', unsafe_allow_html=True)
         user_input = st.text_area(f"{tool_info['prompt']}", height=200)
+
         if st.button(f"Run {tool_info['name']}", use_container_width=True):
             if user_input:
                 st.session_state.messages.append({"role": "user", "content": f"{tool_info['name']} Request: {user_input}", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+                
+                with st.spinner(f"Running {tool_info['name']}..."):
+                    response = generate_response(
+                        st.session_state.messages,
+                        st.session_state.model,
+                        False,
+                        None,
+                        None
+                    )
+                
+                st.session_state.messages.append({"role": "assistant", "content": response, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
                 st.rerun()
             else:
                 st.warning("Please provide input for this tool.")
