@@ -396,7 +396,7 @@ def main():
                         st.session_state.user_role = "demo"
                         st.success(f"Welcome, {username}!")
                         time.sleep(0.8)
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error("Invalid username or password")
         st.markdown("</div>", unsafe_allow_html=True)
