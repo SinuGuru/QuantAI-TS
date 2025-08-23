@@ -455,6 +455,7 @@ def display_usage_stats():
     c.execute("SELECT SUM(tokens), SUM(requests), SUM(cost) FROM usage WHERE user_id = ?", (st.session_state.get("user_id"),))
     result = c.fetchone()
     
+    # FIX: Safely handle the case where a user has no usage data
     if result and result[0] is not None:
         total_tokens, total_requests, total_cost = result
     else:
@@ -520,7 +521,7 @@ def main():
     .stat-label { color:#718096; }
     </style>
     """, unsafe_allow_html=True)
-
+    
     # Lottie animations are commented out to prevent network-related warnings
     # lottie_ai = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_uz5cqu1b.json")
     # lottie_robot = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_sk5h1kfn.json")
