@@ -563,40 +563,36 @@ def main():
                                 st.error("Invalid username or password")
         st.markdown("</div>", unsafe_allow_html=True)
         return
-
-    sidebar = st.sidebar
-    sidebar.button("🚪 Logout", on_click=logout)
-    sidebar.markdown(f"**Signed in as:** {st.session_state.get('username')}")
-
-    sidebar.markdown("### Conversation")
-    if sidebar.button("🆕 Start New Chat"):
-        new_chat()
-        st.rerun()
-    if sidebar.button("💾 Save Conversation"):
-        save_conversation()
-
-    sidebar.markdown("---")
-
-    conv_rows = get_user_conversations(conn, st.session_state["user_id"])
-    conv_names = [r[0] for r in conv_rows]
-    if conv_names:
-        sel = sidebar.selectbox("Load a conversation", options=[""] + conv_names, index=0)
-        if sel:
-            load_conversation(sel)
+    
+    # --- UI LAYOUT FOR AUTHENTICATED USERS ---
+    with st.sidebar:
+        st.button("🚪 Logout", on_click=logout)
+        st.markdown(f"**Signed in as:** {st.session_state.get('username')}")
+        st.markdown("---")
+        
+        st.markdown("### Conversation")
+        if st.button("🆕 Start New Chat"):
+            new_chat()
             st.rerun()
+        if st.button("💾 Save Conversation"):
+            save_conversation()
 
-    sidebar.markdown("---")
-    sidebar.markdown("### Usage")
-    display_usage_stats()
+        st.markdown("---")
+        
+        conv_rows = get_user_conversations(conn, st.session_state["user_id"])
+        conv_names = [r[0] for r in conv_rows]
+        if conv_names:
+            sel = st.selectbox("Load a conversation", options=[""] + conv_names, index=0)
+            if sel:
+                load_conversation(sel)
+                st.rerun()
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.markdown(f'<div class="main-header">Quant AI Assistant</div>', unsafe_allow_html=True)
-        st.caption(f"Welcome, {st.session_state.username} • v7.0.0")
-    with col2:
-        # if lottie_robot:
-        #     st_lottie(lottie_robot, height=80)
-        pass
+        st.markdown("---")
+        st.markdown("### Usage")
+        display_usage_stats()
+
+    st.title("Quant AI Assistant")
+    st.caption(f"Welcome, {st.session_state.username} • v7.0.0")
 
     tab_chat, tab_tools, tab_analytics, tab_settings = st.tabs(["Chat", "Workflows", "Analytics", "Settings"])
 
