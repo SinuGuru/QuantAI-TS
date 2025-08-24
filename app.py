@@ -6,6 +6,7 @@ import requests
 import pandas as pd
 import plotly.express as px
 import time
+import random
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional
 from streamlit_lottie import st_lottie
@@ -27,6 +28,10 @@ SYSTEM_PROMPT = (
 )
 MAX_CONTEXT_MESSAGES = 12
 DB_PATH = Path("app.db")
+
+# Retry/backoff configuration
+OPENAI_MAX_RETRIES = 4
+OPENAI_BACKOFF_BASE = 0.8  # seconds base for exponential backoff
 
 # --- UTILITIES ---
 def sanitize_filename(name: str) -> str:
@@ -203,7 +208,7 @@ def init_session_state():
         "user_id": None,
         "username": None,
         "user_role": None,
-        "api_key": os.getenv("OPENAI_API_KEY", ""),  # In prod prefer environment config
+        "api_key": os.getenv("OPENAI_API_KEY", ""),  # preferring env var for production
         "client_initialized": False,
         "messages": [
             {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?"}
@@ -212,6 +217,7 @@ def init_session_state():
         "conversation_name": f"Conversation {datetime.now().strftime('%Y-%m-%d %H-%M')}",
         "usage_stats": {"tokens": 0, "requests": 0, "cost": 0.0},
         "temperature": 0.7,
+        "max_tokens": 1024,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -225,7 +231,7 @@ def logout():
             del st.session_state[k]
     st.rerun()
 
-# --- OPENAI CLIENT SETUP ---
+# --- OPENAI CLIENT SETUP & RETRY WRAPPER ---
 
 @st.cache_resource
 def create_openai_client(api_key: str):
@@ -239,19 +245,45 @@ def create_openai_client(api_key: str):
     if not api_key:
         return None
     try:
-        # Try the official OpenAI python client class
+        # Prefer new OpenAI client wrapper if available
         try:
             client = openai.OpenAI(api_key=api_key)
-            # quick sanity check (non-blocking in many environments)
-            _ = client.models.list()
             return client
         except Exception:
-            # Fallback to setting global API key and using the module functions (older clients)
+            # Fallback: set global key for older openai package usage
             openai.api_key = api_key
             return openai
-    except Exception as e:
-        logging.exception("Failed to create or verify OpenAI client")
+    except Exception:
+        logging.exception("Failed to create OpenAI client")
         return None
+
+def _should_retry_on_exception(e: Exception) -> bool:
+    """Heuristic to determine whether an exception is transient and should be retried."""
+    # Look for common transient conditions
+    msg = str(e).lower()
+    transient_markers = ["rate limit", "timeout", "timed out", "503", "502", "server error", "service unavailable", "temporarily unavailable"]
+    return any(marker in msg for marker in transient_markers)
+
+def call_openai_with_retries(client, max_retries=OPENAI_MAX_RETRIES, **kwargs):
+    """Call OpenAI (client.chat.completions.create) with retries and exponential backoff."""
+    last_exc = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            # many client variants expose chat.completions.create
+            return client.chat.completions.create(**kwargs)
+        except Exception as e:
+            last_exc = e
+            retry = _should_retry_on_exception(e)
+            if attempt >= max_retries or not retry:
+                logging.exception("OpenAI request failed (no more retries)")
+                raise
+            # exponential backoff with jitter
+            backoff = OPENAI_BACKOFF_BASE * (2 ** (attempt - 1))
+            jitter = random.uniform(0, backoff * 0.2)
+            sleep_time = backoff + jitter
+            logging.warning(f"OpenAI call failed (attempt {attempt}/{max_retries}), retrying in {sleep_time:.2f}s: {e}")
+            time.sleep(sleep_time)
+    raise last_exc
 
 # --- LOCAL TOOL FUNCTIONS ---
 
@@ -365,17 +397,18 @@ def _extract_total_tokens(resp_obj: Any) -> int:
         # object-like
         usage = getattr(resp_obj, "usage", None)
         if usage:
-            # object/attr shape may vary
-            total_tokens = getattr(usage, "total_tokens", None) or usage.get("total_tokens", 0) if isinstance(usage, dict) else None
-            return int(total_tokens or 0)
+            total_tokens = getattr(usage, "total_tokens", None)
+            if total_tokens is not None:
+                return int(total_tokens)
+            if isinstance(usage, dict):
+                return int(usage.get("total_tokens", 0))
     except Exception:
         pass
     return 0
 
 def response(messages: List[Dict[str, Any]], model: str) -> str:
     """
-    Generate a response using OpenAI function-calling.
-    This handles function_call -> execute tool -> append function result -> get final assistant reply.
+    Generate a response using OpenAI function-calling with retries/backoff and max_tokens.
     """
     api_key = st.session_state.get("api_key")
     if not api_key:
@@ -387,18 +420,19 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
 
     # build messages, keeping the most recent context
     api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-MAX_CONTEXT_MESSAGES:]
-
-    # choose parameters
     temperature = float(st.session_state.get("temperature", 0.7))
+    max_tokens = int(st.session_state.get("max_tokens", 1024))
 
     try:
         # call the model, asking it to use provided functions if needed
-        resp = client.chat.completions.create(
+        resp = call_openai_with_retries(
+            client,
             model=model,
             messages=api_messages,
             functions=FUNCTIONS,
             function_call="auto",
             temperature=temperature,
+            max_tokens=max_tokens,
         )
 
         # record usage where possible
@@ -411,9 +445,7 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                 logging.exception("Failed to add usage after first call")
 
         choice = resp.choices[0]
-        # normalize message (may be object or dict)
         message = choice.message if hasattr(choice, "message") else (choice.get("message") if isinstance(choice, dict) else {})
-        # If the model wants to call a function, execute it and then follow up
         function_call = None
         if isinstance(message, dict):
             function_call = message.get("function_call") or message.get("tool_call")
@@ -436,9 +468,10 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                 func_args = {"raw_arguments": raw_args}
 
             # store the model's function request as a message in session history
+            assistant_msg_content = message.get("content", "") if isinstance(message, dict) else getattr(message, "content", "")
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": message.get("content", "") if isinstance(message, dict) else getattr(message, "content", "")
+                "content": assistant_msg_content
             })
 
             # call the local tool
@@ -460,10 +493,12 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
 
             # Ask the model again, including the function output
             api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.messages[-MAX_CONTEXT_MESSAGES:]
-            resp2 = client.chat.completions.create(
+            resp2 = call_openai_with_retries(
+                client,
                 model=model,
                 messages=api_messages,
                 temperature=temperature,
+                max_tokens=max_tokens,
             )
 
             tokens_used_second = _extract_total_tokens(resp2)
@@ -475,7 +510,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                 except Exception:
                     logging.exception("Failed to add usage after second call")
 
-            # final reply
             choice2 = resp2.choices[0]
             final_message = choice2.message if hasattr(choice2, "message") else (choice2.get("message") if isinstance(choice2, dict) else {})
             final_content = final_message.get("content") if isinstance(final_message, dict) else getattr(final_message, "content", "")
@@ -486,8 +520,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
             # no function call; normal assistant message
             assistant_content = message.get("content") if isinstance(message, dict) else getattr(message, "content", "")
             st.session_state.messages.append({"role": "assistant", "content": assistant_content or ""})
-
-            # tokens already recorded above
             return assistant_content or ""
     except Exception as e:
         logging.exception("Error while generating response")
@@ -738,9 +770,14 @@ def main():
 
     with tab_settings:
         st.markdown("### OpenAI API Settings")
+        st.markdown("For production, prefer setting OPENAI_API_KEY as an environment variable or use a secrets manager.")
         api_text = st.text_input("OpenAI API Key", type="password", value=st.session_state.get("api_key", ""))
+        persist_env = st.checkbox("Persist API key to process environment (not recommended)", value=False)
         if api_text and api_text != st.session_state.get("api_key", ""):
             st.session_state.api_key = api_text
+            if persist_env:
+                os.environ["OPENAI_API_KEY"] = api_text
+                st.warning("API key written to process environment. This is not secure for shared or production environments.")
             client = create_openai_client(api_text)
             if client:
                 st.session_state.client_initialized = True
@@ -748,9 +785,11 @@ def main():
             else:
                 st.session_state.client_initialized = False
                 st.error("Failed to initialize client with the provided API key.")
+
         if st.session_state.get("api_key"):
             model_choice = st.selectbox("Model", ["gpt-5", "gpt-5-pro", "gpt-5-mini", "gpt-4o", "gpt-4-turbo-preview"], index=3, key="model")
             temperature = st.slider("Temperature", 0.0, 1.0, 0.7, key="temperature")
+            max_tokens = st.number_input("Max tokens per request", min_value=64, max_value=16000, value=st.session_state.get("max_tokens", 1024), step=64, key="max_tokens")
 
 if __name__ == "__main__":
     main()
