@@ -508,7 +508,7 @@ def new_chat():
 # --- APP LAYOUT / MAIN ---
 
 def main():
-    st.set_page_config(page_title="NeuraLink AI Assistant", page_icon="🤖", layout="wide")
+    st.set_page_config(page_title="Quant AI Assistant", page_icon="🤖", layout="wide")
     init_session_state()
     conn = init_db()
 
@@ -529,7 +529,7 @@ def main():
     if not st.session_state.get("authenticated", False):
         st.markdown('<div style="display:flex;justify-content:center;align-items:center;height:80vh">', unsafe_allow_html=True)
         with st.container():
-            st.markdown('<h1 style="text-align:center;">🤖 NeuraLink AI — Sign in</h1>', unsafe_allow_html=True)
+            st.markdown('<h1 style="text-align:center;">🤖 Quant AI — Sign in</h1>', unsafe_allow_html=True)
             # if lottie_ai:
             #     st_lottie(lottie_ai, height=180)
             with st.form("auth_form"):
@@ -591,7 +591,7 @@ def main():
 
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.markdown(f'<div class="main-header">NeuraLink AI Assistant</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="main-header">Quant AI Assistant</div>', unsafe_allow_html=True)
         st.caption(f"Welcome, {st.session_state.username} • v7.0.0")
     with col2:
         # if lottie_robot:
