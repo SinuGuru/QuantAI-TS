@@ -1,4 +1,5 @@
-# Updated Code
+# (Full file — with fixes applied for model temperature and max_tokens)
+
 import streamlit as st
 import openai
 import os
@@ -44,6 +45,18 @@ MODEL_TEMPERATURES = {
     "gpt-4-turbo-preview": 0.6,
     "default": 0.7,  # Fallback for any other model
 }
+
+# Model-specific max token limits (typical / conservative values)
+MODEL_MAX_TOKENS = {
+    "gpt-5": 65536,
+    "gpt-5-pro": 65536,
+    "gpt-5-mini": 8192,
+    "gpt-4o": 32768,
+    "gpt-4o-mini": 8192,
+    "gpt-4-turbo-preview": 8192,
+    # fallback for unknown models
+}
+DEFAULT_MAX_TOKENS = 4096
 
 # --- UTILITIES ---
 def sanitize_filename(name: str) -> str:
@@ -226,8 +239,13 @@ def init_session_state():
             {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?"}
         ],
         "model": "gpt-4o",
+        # store per-session temperature and max_tokens (defaults derived from model)
+        "temperature": MODEL_TEMPERATURES.get("gpt-4o", MODEL_TEMPERATURES["default"]),
+        "max_tokens": min(MODEL_MAX_TOKENS.get("gpt-4o", DEFAULT_MAX_TOKENS), DEFAULT_MAX_TOKENS),
         "conversation_name": f"Conversation {datetime.now().strftime('%Y-%m-%d %H-%M')}",
         "usage_stats": {"tokens": 0, "requests": 0, "cost": 0.0},
+        # helper to track last model used in settings (to reset defaults when model changes)
+        "_last_model_for_settings": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -554,9 +572,20 @@ def _get_choice_message_and_func(choice):
     text = getattr(choice, "text", None)
     return {"content": text}, text or "", None
 
+def _effective_temperature_for_model(model: str) -> float:
+    """Return a safe clamped temperature for the given model."""
+    t = MODEL_TEMPERATURES.get(model, MODEL_TEMPERATURES["default"])
+    # clamp to reasonable bounds
+    return float(max(0.0, min(2.0, t)))
+
+def _model_max_tokens(model: str) -> int:
+    """Return a conservative max_tokens for the model (fallback DEFAULT_MAX_TOKENS)."""
+    return int(MODEL_MAX_TOKENS.get(model, DEFAULT_MAX_TOKENS))
+
 def response(messages: List[Dict[str, Any]], model: str) -> str:
     """
     Generate a response using OpenAI function-calling with retries/backoff.
+    Uses session-state or model defaults for temperature and max_tokens.
     """
     api_key = st.session_state.get("api_key")
     if not api_key:
@@ -570,8 +599,26 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
         st.session_state.messages.append({"role": "assistant", "content": err})
         return err
 
-    # get model-specific temperature, fallback to a default
-    temperature = MODEL_TEMPERATURES.get(model, MODEL_TEMPERATURES["default"])
+    # get model-specific temperature, but allow session override
+    model_default_temp = _effective_temperature_for_model(model)
+    temperature = st.session_state.get("temperature", model_default_temp)
+    # clamp temperature as a safety measure
+    try:
+        temperature = float(temperature)
+    except Exception:
+        temperature = model_default_temp
+    temperature = max(0.0, min(2.0, temperature))
+
+    # compute model / session max_tokens, ensure we don't exceed model limit
+    model_limit = _model_max_tokens(model)
+    # session override or default: try to reserve some tokens for responses; caller sets desired max_tokens for the model response
+    session_max_tokens = st.session_state.get("max_tokens", min(model_limit, DEFAULT_MAX_TOKENS))
+    try:
+        session_max_tokens = int(session_max_tokens)
+    except Exception:
+        session_max_tokens = min(model_limit, DEFAULT_MAX_TOKENS)
+    # ensure positive and not exceeding model limit
+    session_max_tokens = max(1, min(session_max_tokens, model_limit))
 
     # build messages, keeping the most recent context
     api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-MAX_CONTEXT_MESSAGES:]
@@ -585,6 +632,7 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
             functions=FUNCTIONS,
             function_call="auto",
             temperature=temperature,
+            max_tokens=session_max_tokens,
         )
 
         # record usage where possible
@@ -659,6 +707,7 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                 model=model,
                 messages=api_messages,
                 temperature=temperature,
+                max_tokens=session_max_tokens,
             )
 
             tokens_used_second = _extract_total_tokens(resp2)
@@ -878,7 +927,7 @@ def main():
         if not st.session_state.get("api_key"):
             st.warning("Please enter your OpenAI API key in Settings to interact with the model.")
         else:
-            current_temp = MODEL_TEMPERATURES.get(st.session_state.get('model'), MODEL_TEMPERATURES['default'])
+            current_temp = st.session_state.get('temperature', MODEL_TEMPERATURES.get(st.session_state.get('model'), MODEL_TEMPERATURES['default']))
             st.markdown(f"**Conversation:** {st.session_state.conversation_name} • Model: {st.session_state.model} • Temp: {current_temp}")
             render_chat_messages()
             prompt = st.chat_input("Type a message...")
@@ -978,7 +1027,40 @@ def main():
                 default_index = 0
 
             model_choice = st.selectbox("Model", choices, index=default_index, key="model")
-            st.write(f"Using model: {st.session_state.get('model')} with temperature: {MODEL_TEMPERATURES.get(st.session_state.get('model'), MODEL_TEMPERATURES['default'])}")
+
+            # When model changes, update session defaults for temperature and max_tokens (but don't overwrite if user has customized them)
+            selected_model = st.session_state.get("model")
+            last_model = st.session_state.get("_last_model_for_settings")
+            if selected_model != last_model:
+                # only change session temperature/max_tokens if they are still equal to the prior model default
+                # or not set. This prevents clobbering user-chosen overrides.
+                prior_default_temp = MODEL_TEMPERATURES.get(last_model, MODEL_TEMPERATURES.get("default")) if last_model else None
+                prior_default_max = _model_max_tokens(last_model) if last_model else None
+
+                # if user hasn't changed temperature (equal to prior default) or not set, reset to new default
+                if prior_default_temp is None or st.session_state.get("temperature") == prior_default_temp:
+                    st.session_state["temperature"] = _effective_temperature_for_model(selected_model)
+                # same for max_tokens
+                new_model_limit = _model_max_tokens(selected_model)
+                if prior_default_max is None or st.session_state.get("max_tokens") == min(prior_default_max, DEFAULT_MAX_TOKENS):
+                    st.session_state["max_tokens"] = min(new_model_limit, DEFAULT_MAX_TOKENS)
+
+                st.session_state["_last_model_for_settings"] = selected_model
+
+            # expose temperature / max_tokens controls
+            st.markdown("#### Model response controls")
+            # Temperature slider: allow 0.0..2.0 (clamped in response), step 0.01
+            temp_val = st.slider("Temperature", min_value=0.0, max_value=2.0, value=float(st.session_state.get("temperature", MODEL_TEMPERATURES.get(selected_model, MODEL_TEMPERATURES["default"]))), step=0.01)
+            st.session_state["temperature"] = temp_val
+
+            # Max tokens input: cap by the model's limit
+            model_limit = _model_max_tokens(selected_model)
+            # default value is what's in session_state already (validated/protected earlier)
+            max_tokens_val = st.number_input("Max tokens for model response", min_value=1, max_value=model_limit, value=int(st.session_state.get("max_tokens", min(model_limit, DEFAULT_MAX_TOKENS))), step=1)
+            # ensure stored value respects limit
+            st.session_state["max_tokens"] = max(1, min(int(max_tokens_val), model_limit))
+
+            st.write(f"Using model: {st.session_state.get('model')} with temperature: {st.session_state.get('temperature')} and max_tokens: {st.session_state.get('max_tokens')}")
 
 if __name__ == "__main__":
     main()
