@@ -264,26 +264,137 @@ def _should_retry_on_exception(e: Exception) -> bool:
     transient_markers = ["rate limit", "timeout", "timed out", "503", "502", "server error", "service unavailable", "temporarily unavailable"]
     return any(marker in msg for marker in transient_markers)
 
+def _invoke_chat_completion(client, **kwargs):
+    """
+    Try multiple client call signatures so this works with:
+    - New OpenAI client: client.chat.completions.create(...)
+    - Legacy openai module: openai.ChatCompletion.create(...)
+    - client.ChatCompletion.create(...) variants
+    """
+    # 1) New OpenAI client (recommended)
+    try:
+        if hasattr(client, "chat") and getattr(client, "chat") is not None:
+            if hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
+                return client.chat.completions.create(**kwargs)
+    except Exception:
+        logging.debug("New client chat.completions.create failed, trying other forms", exc_info=True)
+
+    # 2) client.ChatCompletion.create (some wrappers / older clients)
+    try:
+        if hasattr(client, "ChatCompletion") and hasattr(client.ChatCompletion, "create"):
+            return client.ChatCompletion.create(**kwargs)
+    except Exception:
+        logging.debug("client.ChatCompletion.create failed, trying global openai", exc_info=True)
+
+    # 3) global legacy openai module
+    try:
+        if hasattr(openai, "ChatCompletion") and hasattr(openai.ChatCompletion, "create"):
+            return openai.ChatCompletion.create(**kwargs)
+    except Exception:
+        logging.debug("openai.ChatCompletion.create failed", exc_info=True)
+
+    raise RuntimeError("Could not find a supported ChatCompletion method on the OpenAI client object.")
+
 def call_openai_with_retries(client, max_retries=OPENAI_MAX_RETRIES, **kwargs):
-    """Call OpenAI (client.chat.completions.create) with retries and exponential backoff."""
+    """Call OpenAI with retries and exponential backoff, supporting multiple client forms."""
     last_exc = None
     for attempt in range(1, max_retries + 1):
         try:
-            # many client variants expose chat.completions.create
-            return client.chat.completions.create(**kwargs)
+            return _invoke_chat_completion(client, **kwargs)
         except Exception as e:
             last_exc = e
             retry = _should_retry_on_exception(e)
+            # Surface non-transient errors quickly (e.g., invalid model / auth)
             if attempt >= max_retries or not retry:
                 logging.exception("OpenAI request failed (no more retries)")
                 raise
-            # exponential backoff with jitter
             backoff = OPENAI_BACKOFF_BASE * (2 ** (attempt - 1))
             jitter = random.uniform(0, backoff * 0.2)
             sleep_time = backoff + jitter
             logging.warning(f"OpenAI call failed (attempt {attempt}/{max_retries}), retrying in {sleep_time:.2f}s: {e}")
             time.sleep(sleep_time)
     raise last_exc
+
+# --- MODEL LISTING / WHITELIST (restrict models to what the API key supports) ---
+
+# A small whitelist of models your app knows how to work with.
+DEFAULT_ALLOWED_MODELS = [
+    "gpt-5", "gpt-5-pro", "gpt-5-mini", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo-preview"
+]
+
+@st.cache_data
+def list_models_for_api_key(api_key: str) -> List[str]:
+    """
+    Return a list of model IDs available to the provided API key.
+    Tries multiple client call forms to support new and legacy OpenAI clients.
+    Cached per api_key to avoid repeated listing.
+    """
+    if not api_key:
+        return []
+
+    client = create_openai_client(api_key)
+    if client is None:
+        return []
+
+    models = []
+
+    # 1) New client: client.models.list()
+    try:
+        if hasattr(client, "models") and hasattr(client.models, "list"):
+            resp = client.models.list()
+            data = resp.get("data") if isinstance(resp, dict) else getattr(resp, "data", None)
+            if not data:
+                data = resp.get("models") if isinstance(resp, dict) else getattr(resp, "models", None)
+            if data:
+                for m in data:
+                    if isinstance(m, dict):
+                        mid = m.get("id") or m.get("model")
+                    else:
+                        mid = getattr(m, "id", None) or getattr(m, "model", None)
+                    if mid:
+                        models.append(mid)
+            if models:
+                return models
+    except Exception:
+        logging.debug("client.models.list() failed", exc_info=True)
+
+    # 2) client.Model.list() (legacy wrappers)
+    try:
+        if hasattr(client, "Model") and hasattr(client.Model, "list"):
+            resp = client.Model.list()
+            data = resp.get("data") if isinstance(resp, dict) else getattr(resp, "data", None)
+            if data:
+                for m in data:
+                    if isinstance(m, dict):
+                        mid = m.get("id")
+                    else:
+                        mid = getattr(m, "id", None)
+                    if mid:
+                        models.append(mid)
+            if models:
+                return models
+    except Exception:
+        logging.debug("client.Model.list() failed", exc_info=True)
+
+    # 3) global legacy openai.Model.list()
+    try:
+        if hasattr(openai, "Model") and hasattr(openai.Model, "list"):
+            resp = openai.Model.list()
+            data = resp.get("data") if isinstance(resp, dict) else getattr(resp, "data", None)
+            if data:
+                for m in data:
+                    if isinstance(m, dict):
+                        mid = m.get("id")
+                    else:
+                        mid = getattr(m, "id", None)
+                    if mid:
+                        models.append(mid)
+            if models:
+                return models
+    except Exception:
+        logging.debug("openai.Model.list() failed", exc_info=True)
+
+    return []
 
 # --- LOCAL TOOL FUNCTIONS ---
 
@@ -406,17 +517,48 @@ def _extract_total_tokens(resp_obj: Any) -> int:
         pass
     return 0
 
+def _get_choice_message_and_func(choice):
+    """
+    Given a single choice (dict or object), return (message_obj, content, function_call_obj)
+    message_obj is the raw message dict/object when available.
+    """
+    # dict-like
+    if isinstance(choice, dict):
+        # New-style chat choice: choice["message"] -> {"role":..., "content":..., "function_call": {...}}
+        message = choice.get("message")
+        if isinstance(message, dict):
+            content = message.get("content", "") or ""
+            function_call = message.get("function_call") or message.get("tool_call")
+            return message, content, function_call
+        # Some older APIs may put text on the choice
+        text = choice.get("text", "")
+        return {"content": text}, text or "", None
+
+    # object-like
+    message_obj = getattr(choice, "message", None)
+    if message_obj is not None:
+        content = getattr(message_obj, "content", "") or ""
+        function_call = getattr(message_obj, "function_call", None) or getattr(message_obj, "tool_call", None)
+        return message_obj, content, function_call
+
+    text = getattr(choice, "text", None)
+    return {"content": text}, text or "", None
+
 def response(messages: List[Dict[str, Any]], model: str) -> str:
     """
     Generate a response using OpenAI function-calling with retries/backoff and max_tokens.
     """
     api_key = st.session_state.get("api_key")
     if not api_key:
-        return "Please enter your OpenAI API key in the Settings tab."
+        err = "Please enter your OpenAI API key in the Settings tab."
+        st.session_state.messages.append({"role": "assistant", "content": err})
+        return err
 
     client = create_openai_client(api_key)
     if client is None:
-        return "OpenAI client could not be initialized. Check your API key."
+        err = "OpenAI client could not be initialized. Check your API key."
+        st.session_state.messages.append({"role": "assistant", "content": err})
+        return err
 
     # build messages, keeping the most recent context
     api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-MAX_CONTEXT_MESSAGES:]
@@ -444,35 +586,44 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
             except Exception:
                 logging.exception("Failed to add usage after first call")
 
-        choice = resp.choices[0]
-        message = choice.message if hasattr(choice, "message") else (choice.get("message") if isinstance(choice, dict) else {})
-        function_call = None
-        if isinstance(message, dict):
-            function_call = message.get("function_call") or message.get("tool_call")
+        # Normalize choices
+        choices = []
+        if isinstance(resp, dict):
+            choices = resp.get("choices", []) or []
         else:
-            function_call = getattr(message, "function_call", None)
+            choices = getattr(resp, "choices", []) or []
 
+        if not choices:
+            # No choices returned; surface an error
+            err_msg = "No choices returned from model."
+            st.session_state.messages.append({"role": "assistant", "content": err_msg})
+            return err_msg
+
+        choice = choices[0]
+        message_obj, assistant_content, function_call = _get_choice_message_and_func(choice)
+
+        # If model asked to call a function/tool:
         if function_call:
+            # store the model's function request as a message in session history (content may be empty)
+            assistant_msg_content = assistant_content or ""
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": assistant_msg_content
+            })
+
             # extract name and arguments robustly
             if isinstance(function_call, dict):
                 func_name = function_call.get("name")
-                raw_args = function_call.get("arguments", "")
+                raw_args = function_call.get("arguments", "") or ""
             else:
                 func_name = getattr(function_call, "name", None)
-                raw_args = getattr(function_call, "arguments", "")
+                raw_args = getattr(function_call, "arguments", "") or ""
 
             # attempt to parse JSON arguments (some tools embed JSON), fallback to raw string
             try:
                 func_args = json.loads(raw_args) if isinstance(raw_args, str) and raw_args.strip().startswith("{") else {}
             except Exception:
                 func_args = {"raw_arguments": raw_args}
-
-            # store the model's function request as a message in session history
-            assistant_msg_content = message.get("content", "") if isinstance(message, dict) else getattr(message, "content", "")
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": assistant_msg_content
-            })
 
             # call the local tool
             tool_func = LOCAL_TOOL_MAP.get(func_name)
@@ -510,20 +661,26 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                 except Exception:
                     logging.exception("Failed to add usage after second call")
 
-            choice2 = resp2.choices[0]
-            final_message = choice2.message if hasattr(choice2, "message") else (choice2.get("message") if isinstance(choice2, dict) else {})
-            final_content = final_message.get("content") if isinstance(final_message, dict) else getattr(final_message, "content", "")
-            # store assistant's final reply
+            # normalize second response choices
+            choices2 = resp2.get("choices", []) if isinstance(resp2, dict) else getattr(resp2, "choices", []) or []
+            if not choices2:
+                err_msg = "No choices returned from model after function call."
+                st.session_state.messages.append({"role": "assistant", "content": err_msg})
+                return err_msg
+
+            choice2 = choices2[0]
+            _, final_content, _ = _get_choice_message_and_func(choice2)
             st.session_state.messages.append({"role": "assistant", "content": final_content or ""})
             return final_content or ""
         else:
             # no function call; normal assistant message
-            assistant_content = message.get("content") if isinstance(message, dict) else getattr(message, "content", "")
             st.session_state.messages.append({"role": "assistant", "content": assistant_content or ""})
             return assistant_content or ""
     except Exception as e:
         logging.exception("Error while generating response")
-        return f"Unexpected error: {e}"
+        err_msg = f"Unexpected error while contacting the model: {e}"
+        st.session_state.messages.append({"role": "assistant", "content": err_msg})
+        return err_msg
 
 # --- UI RENDER HELPERS ---
 
@@ -786,10 +943,32 @@ def main():
                 st.session_state.client_initialized = False
                 st.error("Failed to initialize client with the provided API key.")
 
+        # Model selection: only show models available to the API key, intersected with a whitelist
         if st.session_state.get("api_key"):
-            model_choice = st.selectbox("Model", ["gpt-5", "gpt-5-pro", "gpt-5-mini", "gpt-4o", "gpt-4-turbo-preview"], index=3, key="model")
-            temperature = st.slider("Temperature", 0.0, 1.0, 0.7, key="temperature")
-            max_tokens = st.number_input("Max tokens per request", min_value=64, max_value=16000, value=st.session_state.get("max_tokens", 1024), step=64, key="max_tokens")
+            api_key = st.session_state["api_key"]
+            available_models = list_models_for_api_key(api_key)
+
+            # Prefer intersection with our app whitelist
+            choices = [m for m in DEFAULT_ALLOWED_MODELS if m in available_models]
+
+            # If none of the whitelist models are present, try to pick sensible GPT-like models returned by the API
+            if not choices and available_models:
+                choices = [m for m in available_models if "gpt" in m.lower()]
+
+            # Final fallback to DEFAULT_ALLOWED_MODELS so UI always has something
+            if not choices:
+                st.warning("Could not fetch models for the given API key or no matching models found. Showing default model list.")
+                choices = DEFAULT_ALLOWED_MODELS
+
+            # Choose a reasonable default index (try to keep the previously selected model if still present)
+            try:
+                current = st.session_state.get("model", choices[0])
+                default_index = choices.index(current) if current in choices else 0
+            except Exception:
+                default_index = 0
+
+            model_choice = st.selectbox("Model", choices, index=default_index, key="model")
+            st.write(f"Using model: {st.session_state.get('model')}")
 
 if __name__ == "__main__":
     main()
