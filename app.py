@@ -1,3 +1,4 @@
+# Updated Code
 import streamlit as st
 import openai
 import os
@@ -32,6 +33,17 @@ DB_PATH = Path("app.db")
 # Retry/backoff configuration
 OPENAI_MAX_RETRIES = 4
 OPENAI_BACKOFF_BASE = 0.8  # seconds base for exponential backoff
+
+# Model-specific temperature settings
+MODEL_TEMPERATURES = {
+    "gpt-5": 0.5,
+    "gpt-5-pro": 0.3,  # More deterministic
+    "gpt-5-mini": 0.7,
+    "gpt-4o": 0.5,
+    "gpt-4o-mini": 0.7,
+    "gpt-4-turbo-preview": 0.6,
+    "default": 0.7,  # Fallback for any other model
+}
 
 # --- UTILITIES ---
 def sanitize_filename(name: str) -> str:
@@ -216,8 +228,6 @@ def init_session_state():
         "model": "gpt-4o",
         "conversation_name": f"Conversation {datetime.now().strftime('%Y-%m-%d %H-%M')}",
         "usage_stats": {"tokens": 0, "requests": 0, "cost": 0.0},
-        "temperature": 0.7,
-        "max_tokens": 1024,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -546,7 +556,7 @@ def _get_choice_message_and_func(choice):
 
 def response(messages: List[Dict[str, Any]], model: str) -> str:
     """
-    Generate a response using OpenAI function-calling with retries/backoff and max_tokens.
+    Generate a response using OpenAI function-calling with retries/backoff.
     """
     api_key = st.session_state.get("api_key")
     if not api_key:
@@ -560,10 +570,11 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
         st.session_state.messages.append({"role": "assistant", "content": err})
         return err
 
+    # get model-specific temperature, fallback to a default
+    temperature = MODEL_TEMPERATURES.get(model, MODEL_TEMPERATURES["default"])
+
     # build messages, keeping the most recent context
     api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-MAX_CONTEXT_MESSAGES:]
-    temperature = float(st.session_state.get("temperature", 0.7))
-    max_tokens = int(st.session_state.get("max_tokens", 1024))
 
     try:
         # call the model, asking it to use provided functions if needed
@@ -574,7 +585,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
             functions=FUNCTIONS,
             function_call="auto",
             temperature=temperature,
-            max_tokens=max_tokens,
         )
 
         # record usage where possible
@@ -649,7 +659,6 @@ def response(messages: List[Dict[str, Any]], model: str) -> str:
                 model=model,
                 messages=api_messages,
                 temperature=temperature,
-                max_tokens=max_tokens,
             )
 
             tokens_used_second = _extract_total_tokens(resp2)
@@ -869,7 +878,8 @@ def main():
         if not st.session_state.get("api_key"):
             st.warning("Please enter your OpenAI API key in Settings to interact with the model.")
         else:
-            st.markdown(f"**Conversation:** {st.session_state.conversation_name} • Model: {st.session_state.model}")
+            current_temp = MODEL_TEMPERATURES.get(st.session_state.get('model'), MODEL_TEMPERATURES['default'])
+            st.markdown(f"**Conversation:** {st.session_state.conversation_name} • Model: {st.session_state.model} • Temp: {current_temp}")
             render_chat_messages()
             prompt = st.chat_input("Type a message...")
             if prompt:
@@ -968,7 +978,7 @@ def main():
                 default_index = 0
 
             model_choice = st.selectbox("Model", choices, index=default_index, key="model")
-            st.write(f"Using model: {st.session_state.get('model')}")
+            st.write(f"Using model: {st.session_state.get('model')} with temperature: {MODEL_TEMPERATURES.get(st.session_state.get('model'), MODEL_TEMPERATURES['default'])}")
 
 if __name__ == "__main__":
     main()
