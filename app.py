@@ -1,5 +1,3 @@
-# (Full file — with fixes applied for model temperature and max_tokens)
-
 import streamlit as st
 import openai
 import os
@@ -8,7 +6,6 @@ import requests
 import pandas as pd
 import plotly.express as px
 import time
-import random
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional
 from streamlit_lottie import st_lottie
@@ -17,10 +14,8 @@ import sqlite3
 import hashlib
 import binascii
 from pathlib import Path
-import logging
 
 # --- CONFIG / CONSTANTS ---
-logging.basicConfig(level=logging.INFO)
 CONVERSATIONS_DIR = Path("conversations")
 CONVERSATIONS_DIR.mkdir(exist_ok=True)
 
@@ -31,34 +26,8 @@ SYSTEM_PROMPT = (
 MAX_CONTEXT_MESSAGES = 12
 DB_PATH = Path("app.db")
 
-# Retry/backoff configuration
-OPENAI_MAX_RETRIES = 4
-OPENAI_BACKOFF_BASE = 0.8  # seconds base for exponential backoff
-
-# Model-specific temperature settings
-MODEL_TEMPERATURES = {
-    "gpt-5": 0.5,
-    "gpt-5-pro": 0.3,  # More deterministic
-    "gpt-5-mini": 0.7,
-    "gpt-4o": 0.5,
-    "gpt-4o-mini": 0.7,
-    "gpt-4-turbo-preview": 0.6,
-    "default": 0.7,  # Fallback for any other model
-}
-
-# Model-specific max token limits (typical / conservative values)
-MODEL_MAX_TOKENS = {
-    "gpt-5": 65536,
-    "gpt-5-pro": 65536,
-    "gpt-5-mini": 8192,
-    "gpt-4o": 32768,
-    "gpt-4o-mini": 8192,
-    "gpt-4-turbo-preview": 8192,
-    # fallback for unknown models
-}
-DEFAULT_MAX_TOKENS = 4096
-
 # --- UTILITIES ---
+
 def sanitize_filename(name: str) -> str:
     """Sanitize filenames by removing / replacing characters invalid on many systems."""
     name = re.sub(r"[:<>\"/\\|?*]", "_", name)
@@ -181,7 +150,6 @@ def save_conversation_db(conn: sqlite3.Connection, user_id: int, name: str, mess
         """, (user_id, name, payload))
         conn.commit()
     except sqlite3.OperationalError:
-        # Fallback for older sqlite versions or unexpected concurrency issues
         c.execute("DELETE FROM conversations WHERE user_id = ? AND name = ?", (user_id, name))
         c.execute("INSERT INTO conversations (user_id, name, data) VALUES (?, ?, ?)", (user_id, name, payload))
         conn.commit()
@@ -233,19 +201,15 @@ def init_session_state():
         "user_id": None,
         "username": None,
         "user_role": None,
-        "api_key": os.getenv("OPENAI_API_KEY", ""),  # preferring env var for production
+        "api_key": os.getenv("OPENAI_API_KEY", ""),
         "client_initialized": False,
         "messages": [
             {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?"}
         ],
         "model": "gpt-4o",
-        # store per-session temperature and max_tokens (defaults derived from model)
-        "temperature": MODEL_TEMPERATURES.get("gpt-4o", MODEL_TEMPERATURES["default"]),
-        "max_tokens": min(MODEL_MAX_TOKENS.get("gpt-4o", DEFAULT_MAX_TOKENS), DEFAULT_MAX_TOKENS),
         "conversation_name": f"Conversation {datetime.now().strftime('%Y-%m-%d %H-%M')}",
         "usage_stats": {"tokens": 0, "requests": 0, "cost": 0.0},
-        # helper to track last model used in settings (to reset defaults when model changes)
-        "_last_model_for_settings": None,
+        "temperature": 0.7,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -259,170 +223,22 @@ def logout():
             del st.session_state[k]
     st.rerun()
 
-# --- OPENAI CLIENT SETUP & RETRY WRAPPER ---
+# --- OPENAI CLIENT SETUP ---
 
 @st.cache_resource
 def create_openai_client(api_key: str):
-    """
-    Create an OpenAI client resource.
-
-    Notes:
-    - No session_state mutation inside cached function.
-    - Returns either an instance with chat.completions.create or None on failure.
-    """
+    """Create an OpenAI client resource."""
     if not api_key:
         return None
     try:
-        # Prefer new OpenAI client wrapper if available
-        try:
-            client = openai.OpenAI(api_key=api_key)
-            return client
-        except Exception:
-            # Fallback: set global key for older openai package usage
-            openai.api_key = api_key
-            return openai
-    except Exception:
-        logging.exception("Failed to create OpenAI client")
+        client = openai.OpenAI(api_key=api_key)
+        client.models.list()
+        st.session_state["client_initialized"] = True
+        return client
+    except Exception as e:
+        st.error(f"Failed to create OpenAI client: {e}")
+        st.session_state["client_initialized"] = False
         return None
-
-def _should_retry_on_exception(e: Exception) -> bool:
-    """Heuristic to determine whether an exception is transient and should be retried."""
-    # Look for common transient conditions
-    msg = str(e).lower()
-    transient_markers = ["rate limit", "timeout", "timed out", "503", "502", "server error", "service unavailable", "temporarily unavailable"]
-    return any(marker in msg for marker in transient_markers)
-
-def _invoke_chat_completion(client, **kwargs):
-    """
-    Try multiple client call signatures so this works with:
-    - New OpenAI client: client.chat.completions.create(...)
-    - Legacy openai module: openai.ChatCompletion.create(...)
-    - client.ChatCompletion.create(...) variants
-    """
-    # 1) New OpenAI client (recommended)
-    try:
-        if hasattr(client, "chat") and getattr(client, "chat") is not None:
-            if hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
-                return client.chat.completions.create(**kwargs)
-    except Exception:
-        logging.debug("New client chat.completions.create failed, trying other forms", exc_info=True)
-
-    # 2) client.ChatCompletion.create (some wrappers / older clients)
-    try:
-        if hasattr(client, "ChatCompletion") and hasattr(client.ChatCompletion, "create"):
-            return client.ChatCompletion.create(**kwargs)
-    except Exception:
-        logging.debug("client.ChatCompletion.create failed, trying global openai", exc_info=True)
-
-    # 3) global legacy openai module
-    try:
-        if hasattr(openai, "ChatCompletion") and hasattr(openai.ChatCompletion, "create"):
-            return openai.ChatCompletion.create(**kwargs)
-    except Exception:
-        logging.debug("openai.ChatCompletion.create failed", exc_info=True)
-
-    raise RuntimeError("Could not find a supported ChatCompletion method on the OpenAI client object.")
-
-def call_openai_with_retries(client, max_retries=OPENAI_MAX_RETRIES, **kwargs):
-    """Call OpenAI with retries and exponential backoff, supporting multiple client forms."""
-    last_exc = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            return _invoke_chat_completion(client, **kwargs)
-        except Exception as e:
-            last_exc = e
-            retry = _should_retry_on_exception(e)
-            # Surface non-transient errors quickly (e.g., invalid model / auth)
-            if attempt >= max_retries or not retry:
-                logging.exception("OpenAI request failed (no more retries)")
-                raise
-            backoff = OPENAI_BACKOFF_BASE * (2 ** (attempt - 1))
-            jitter = random.uniform(0, backoff * 0.2)
-            sleep_time = backoff + jitter
-            logging.warning(f"OpenAI call failed (attempt {attempt}/{max_retries}), retrying in {sleep_time:.2f}s: {e}")
-            time.sleep(sleep_time)
-    raise last_exc
-
-# --- MODEL LISTING / WHITELIST (restrict models to what the API key supports) ---
-
-# A small whitelist of models your app knows how to work with.
-DEFAULT_ALLOWED_MODELS = [
-    "gpt-5", "gpt-5-pro", "gpt-5-mini", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo-preview"
-]
-
-@st.cache_data
-def list_models_for_api_key(api_key: str) -> List[str]:
-    """
-    Return a list of model IDs available to the provided API key.
-    Tries multiple client call forms to support new and legacy OpenAI clients.
-    Cached per api_key to avoid repeated listing.
-    """
-    if not api_key:
-        return []
-
-    client = create_openai_client(api_key)
-    if client is None:
-        return []
-
-    models = []
-
-    # 1) New client: client.models.list()
-    try:
-        if hasattr(client, "models") and hasattr(client.models, "list"):
-            resp = client.models.list()
-            data = resp.get("data") if isinstance(resp, dict) else getattr(resp, "data", None)
-            if not data:
-                data = resp.get("models") if isinstance(resp, dict) else getattr(resp, "models", None)
-            if data:
-                for m in data:
-                    if isinstance(m, dict):
-                        mid = m.get("id") or m.get("model")
-                    else:
-                        mid = getattr(m, "id", None) or getattr(m, "model", None)
-                    if mid:
-                        models.append(mid)
-            if models:
-                return models
-    except Exception:
-        logging.debug("client.models.list() failed", exc_info=True)
-
-    # 2) client.Model.list() (legacy wrappers)
-    try:
-        if hasattr(client, "Model") and hasattr(client.Model, "list"):
-            resp = client.Model.list()
-            data = resp.get("data") if isinstance(resp, dict) else getattr(resp, "data", None)
-            if data:
-                for m in data:
-                    if isinstance(m, dict):
-                        mid = m.get("id")
-                    else:
-                        mid = getattr(m, "id", None)
-                    if mid:
-                        models.append(mid)
-            if models:
-                return models
-    except Exception:
-        logging.debug("client.Model.list() failed", exc_info=True)
-
-    # 3) global legacy openai.Model.list()
-    try:
-        if hasattr(openai, "Model") and hasattr(openai.Model, "list"):
-            resp = openai.Model.list()
-            data = resp.get("data") if isinstance(resp, dict) else getattr(resp, "data", None)
-            if data:
-                for m in data:
-                    if isinstance(m, dict):
-                        mid = m.get("id")
-                    else:
-                        mid = getattr(m, "id", None)
-                    if mid:
-                        models.append(mid)
-            if models:
-                return models
-    except Exception:
-        logging.debug("openai.Model.list() failed", exc_info=True)
-
-    return []
 
 # --- LOCAL TOOL FUNCTIONS ---
 
@@ -514,270 +330,146 @@ LOCAL_TOOL_MAP = {
 # --- MODEL / TOOL INVOCATION (function-calling pattern) ---
 
 def _normalize_message(msg: Any) -> Dict[str, Any]:
-    """Ensure an incoming message object is converted into a plain dict with role/content (and optional metadata)."""
+    """Normalize a message into a dict with role/content and include tool_calls when present."""
     if isinstance(msg, dict):
         return msg
     try:
-        # Fallback for library-specific message objects
-        return {"role": getattr(msg, "role", "assistant"), "content": getattr(msg, "content", str(msg))}
+        normalized = {
+            "role": getattr(msg, "role", "assistant"),
+            "content": getattr(msg, "content", str(msg)),
+        }
+        # Preserve tool_calls for assistant messages so UI can render them
+        tool_calls = getattr(msg, "tool_calls", None)
+        if tool_calls:
+            try:
+                normalized["tool_calls"] = [
+                    {
+                        "id": getattr(tc, "id", None),
+                        "type": getattr(tc, "type", None),
+                        "function": {
+                            "name": getattr(getattr(tc, "function", None), "name", None),
+                            "arguments": getattr(getattr(tc, "function", None), "arguments", ""),
+                        },
+                    }
+                    for tc in tool_calls
+                ]
+            except Exception:
+                pass
+        return normalized
     except Exception:
         return {"role": "assistant", "content": str(msg)}
 
-def _extract_total_tokens(resp_obj: Any) -> int:
-    """
-    Safely extract total_tokens from a response object that might be a dict or an object.
-    Return 0 if not available.
-    """
-    try:
-        # dict-like
-        if isinstance(resp_obj, dict):
-            usage = resp_obj.get("usage") or {}
-            return int(usage.get("total_tokens", 0))
-        # object-like
-        usage = getattr(resp_obj, "usage", None)
-        if usage:
-            total_tokens = getattr(usage, "total_tokens", None)
-            if total_tokens is not None:
-                return int(total_tokens)
-            if isinstance(usage, dict):
-                return int(usage.get("total_tokens", 0))
-    except Exception:
-        pass
-    return 0
-
-def _get_choice_message_and_func(choice):
-    """
-    Given a single choice (dict or object), return (message_obj, content, function_call_obj)
-    message_obj is the raw message dict/object when available.
-    """
-    # dict-like
-    if isinstance(choice, dict):
-        # New-style chat choice: choice["message"] -> {"role":..., "content":..., "function_call": {...}}
-        message = choice.get("message")
-        if isinstance(message, dict):
-            content = message.get("content", "") or ""
-            function_call = message.get("function_call") or message.get("tool_call")
-            return message, content, function_call
-        # Some older APIs may put text on the choice
-        text = choice.get("text", "")
-        return {"content": text}, text or "", None
-
-    # object-like
-    message_obj = getattr(choice, "message", None)
-    if message_obj is not None:
-        content = getattr(message_obj, "content", "") or ""
-        function_call = getattr(message_obj, "function_call", None) or getattr(message_obj, "tool_call", None)
-        return message_obj, content, function_call
-
-    text = getattr(choice, "text", None)
-    return {"content": text}, text or "", None
-
-def _effective_temperature_for_model(model: str) -> float:
-    """Return a safe clamped temperature for the given model."""
-    t = MODEL_TEMPERATURES.get(model, MODEL_TEMPERATURES["default"])
-    # clamp to reasonable bounds
-    return float(max(0.0, min(2.0, t)))
-
-def _model_max_tokens(model: str) -> int:
-    """Return a conservative max_tokens for the model (fallback DEFAULT_MAX_TOKENS)."""
-    return int(MODEL_MAX_TOKENS.get(model, DEFAULT_MAX_TOKENS))
-
 def response(messages: List[Dict[str, Any]], model: str) -> str:
-    """
-    Generate a response using OpenAI function-calling with retries/backoff.
-    Uses session-state or model defaults for temperature and max_tokens.
-    """
-    api_key = st.session_state.get("api_key")
-    if not api_key:
-        err = "Please enter your OpenAI API key in the Settings tab."
-        st.session_state.messages.append({"role": "assistant", "content": err})
-        return err
+    """Generate a response using OpenAI function-calling."""
+    if not st.session_state.get("api_key"):
+        return "Please enter your OpenAI API key in the Settings tab."
 
-    client = create_openai_client(api_key)
+    client = create_openai_client(st.session_state.api_key)
     if client is None:
-        err = "OpenAI client could not be initialized. Check your API key."
-        st.session_state.messages.append({"role": "assistant", "content": err})
-        return err
+        return "OpenAI client could not be initialized. Check your API key."
 
-    # get model-specific temperature, but allow session override
-    model_default_temp = _effective_temperature_for_model(model)
-    temperature = st.session_state.get("temperature", model_default_temp)
-    # clamp temperature as a safety measure
-    try:
-        temperature = float(temperature)
-    except Exception:
-        temperature = model_default_temp
-    temperature = max(0.0, min(2.0, temperature))
-
-    # compute model / session max_tokens, ensure we don't exceed model limit
-    model_limit = _model_max_tokens(model)
-    # session override or default: try to reserve some tokens for responses; caller sets desired max_tokens for the model response
-    session_max_tokens = st.session_state.get("max_tokens", min(model_limit, DEFAULT_MAX_TOKENS))
-    try:
-        session_max_tokens = int(session_max_tokens)
-    except Exception:
-        session_max_tokens = min(model_limit, DEFAULT_MAX_TOKENS)
-    # ensure positive and not exceeding model limit
-    session_max_tokens = max(1, min(session_max_tokens, model_limit))
-
-    # build messages, keeping the most recent context
     api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-MAX_CONTEXT_MESSAGES:]
 
     try:
-        # call the model, asking it to use provided functions if needed
-        resp = call_openai_with_retries(
-            client,
+        response_obj = client.chat.completions.create(
             model=model,
             messages=api_messages,
-            functions=FUNCTIONS,
-            function_call="auto",
-            temperature=temperature,
-            max_tokens=session_max_tokens,
+            tools=[{"type": "function", "function": f} for f in FUNCTIONS],
+            tool_choice="auto",
+            temperature=st.session_state.get("temperature", 0.7),
         )
+        st.session_state.usage_stats["requests"] += 1
 
-        # record usage where possible
-        tokens_used = _extract_total_tokens(resp)
-        if st.session_state.get("user_id"):
-            try:
-                conn = init_db()
-                add_usage(conn, st.session_state["user_id"], tokens=tokens_used, requests=1)
-            except Exception:
-                logging.exception("Failed to add usage after first call")
+        choice = response_obj.choices[0]
+        message = choice.message
 
-        # Normalize choices
-        choices = []
-        if isinstance(resp, dict):
-            choices = resp.get("choices", []) or []
-        else:
-            choices = getattr(resp, "choices", []) or []
+        tool_calls = message.tool_calls
+        if tool_calls:
+            st.session_state.messages.append(message)
 
-        if not choices:
-            # No choices returned; surface an error
-            err_msg = "No choices returned from model."
-            st.session_state.messages.append({"role": "assistant", "content": err_msg})
-            return err_msg
+            for tool_call in tool_calls:
+                function_name = tool_call.function.name
+                arguments_str = tool_call.function.arguments
 
-        choice = choices[0]
-        message_obj, assistant_content, function_call = _get_choice_message_and_func(choice)
-
-        # If model asked to call a function/tool:
-        if function_call:
-            # store the model's function request as a message in session history (content may be empty)
-            assistant_msg_content = assistant_content or ""
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": assistant_msg_content
-            })
-
-            # extract name and arguments robustly
-            if isinstance(function_call, dict):
-                func_name = function_call.get("name")
-                raw_args = function_call.get("arguments", "") or ""
-            else:
-                func_name = getattr(function_call, "name", None)
-                raw_args = getattr(function_call, "arguments", "") or ""
-
-            # attempt to parse JSON arguments (some tools embed JSON), fallback to raw string
-            try:
-                func_args = json.loads(raw_args) if isinstance(raw_args, str) and raw_args.strip().startswith("{") else {}
-            except Exception:
-                func_args = {"raw_arguments": raw_args}
-
-            # call the local tool
-            tool_func = LOCAL_TOOL_MAP.get(func_name)
-            if not tool_func:
-                func_result = f"Error: tool '{func_name}' not implemented."
-            else:
                 try:
-                    func_result = tool_func(**func_args) if isinstance(func_args, dict) else tool_func(func_args)
-                except Exception as ex:
-                    func_result = f"Error executing tool '{func_name}': {ex}"
+                    args = json.loads(arguments_str)
+                except json.JSONDecodeError:
+                    args = {"raw_arguments": arguments_str}
 
-            # append the function response to the conversation as a function-role message
-            st.session_state.messages.append({
-                "role": "function",
-                "name": func_name,
-                "content": func_result
-            })
+                tool_func = LOCAL_TOOL_MAP.get(function_name)
+                if not tool_func:
+                    func_result = f"Error: Tool '{function_name}' not implemented."
+                else:
+                    try:
+                        func_result = tool_func(**args)
+                    except Exception as e:
+                        func_result = f"Error when executing tool '{function_name}': {e}"
 
-            # Ask the model again, including the function output
+                st.session_state.messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": function_name,
+                    "content": func_result
+                })
+
             api_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.messages[-MAX_CONTEXT_MESSAGES:]
-            resp2 = call_openai_with_retries(
-                client,
+            response2 = client.chat.completions.create(
                 model=model,
                 messages=api_messages,
-                temperature=temperature,
-                max_tokens=session_max_tokens,
+                temperature=st.session_state.get("temperature", 0.7),
             )
+            st.session_state.usage_stats["requests"] += 1
+            final_message = response2.choices[0].message
+            st.session_state.messages.append(final_message)
 
-            tokens_used_second = _extract_total_tokens(resp2)
-            # add usage
             if st.session_state.get("user_id"):
-                try:
-                    conn = init_db()
-                    add_usage(conn, st.session_state["user_id"], tokens=tokens_used_second, requests=1)
-                except Exception:
-                    logging.exception("Failed to add usage after second call")
+                conn = init_db()
+                tokens = response2.usage.total_tokens
+                add_usage(conn, st.session_state["user_id"], tokens=tokens)
 
-            # normalize second response choices
-            choices2 = resp2.get("choices", []) if isinstance(resp2, dict) else getattr(resp2, "choices", []) or []
-            if not choices2:
-                err_msg = "No choices returned from model after function call."
-                st.session_state.messages.append({"role": "assistant", "content": err_msg})
-                return err_msg
-
-            choice2 = choices2[0]
-            _, final_content, _ = _get_choice_message_and_func(choice2)
-            st.session_state.messages.append({"role": "assistant", "content": final_content or ""})
-            return final_content or ""
+            return final_message.content or ""
         else:
-            # no function call; normal assistant message
-            st.session_state.messages.append({"role": "assistant", "content": assistant_content or ""})
-            return assistant_content or ""
+            st.session_state.messages.append(message)
+
+            if st.session_state.get("user_id"):
+                conn = init_db()
+                tokens = response_obj.usage.total_tokens
+                add_usage(conn, st.session_state["user_id"], tokens=tokens)
+
+            return message.content or ""
+    except openai.APIError as e:
+        return f"OpenAI API error: {e}"
     except Exception as e:
-        logging.exception("Error while generating response")
-        err_msg = f"Unexpected error while contacting the model: {e}"
-        st.session_state.messages.append({"role": "assistant", "content": err_msg})
-        return err_msg
+        return f"Unexpected error: {e}"
 
 # --- UI RENDER HELPERS ---
 
 def render_chat_messages():
-    """Render all messages in the session with better formatting for code and JSON."""
-    for msg in st.session_state.messages:
-        msg = _normalize_message(msg)
+    """Render all messages with avatars and compact tool outputs."""
+    avatar_map = {"assistant": "🤖", "user": "🧑", "tool": "🧰"}
+    for raw in st.session_state.messages:
+        msg = _normalize_message(raw)
         role = msg.get("role", "user")
-        if role not in ("user", "assistant", "function", "tool"):
-            role = "assistant"
-        with st.chat_message(role):
+        avatar = avatar_map.get(role, "")
+        with st.chat_message(role, avatar=avatar):
             content = msg.get("content", "")
             if role == "assistant" and msg.get("tool_calls"):
-                # backward-compat: older messages may include tool_calls metadata
                 for tc in msg.get("tool_calls", []):
-                    func_name = tc.get('function', {}).get('name', 'unknown')
-                    st.markdown(f"**Tool request:** `{func_name}`")
-                    st.code(tc.get('function', {}).get('arguments', ''), language="json")
+                    func_name = tc.get("function", {}).get("name", "unknown")
+                    with st.expander(f"Tool requested: {func_name}", icon="🧰"):
+                        st.code(tc.get("function", {}).get("arguments", ""), language="json")
                 if content:
-                    st.markdown(content)
-            elif role == "function" or role == "tool":
-                # function / tool outputs
+                    st.markdown(f"<div class='chat-bubble assistant'>{content}</div>", unsafe_allow_html=True)
+            elif role == "tool":
                 name = msg.get("name", "tool")
-                st.info(f"📦 Tool output from `{name}`")
-                try:
-                    parsed = json.loads(content)
-                    st.json(parsed)
-                except Exception:
-                    st.code(content)
-            else:
-                # user / assistant plain content - attempt to render JSON prettily if it looks JSON
-                stripped = (content or "").strip()
-                if (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]")):
+                with st.expander(f"Tool output: {name}", expanded=False):
                     try:
-                        st.json(json.loads(stripped))
-                        continue
+                        parsed = json.loads(content)
+                        st.json(parsed)
                     except Exception:
-                        pass
-                st.markdown(content)
+                        st.code(content)
+            else:
+                st.markdown(f"<div class='chat-bubble {role}'>{content}</div>", unsafe_allow_html=True)
 
 def display_usage_stats():
     """Display usage statistics in a clean card format."""
@@ -786,19 +478,17 @@ def display_usage_stats():
     c.execute("SELECT SUM(tokens), SUM(requests), SUM(cost) FROM usage WHERE user_id = ?", (st.session_state.get("user_id"),))
     result = c.fetchone()
 
-    # Safely handle the case where a user has no usage data
-    if result and any(v is not None for v in result):
-        total_tokens = int(result[0] or 0)
-        total_requests = int(result[1] or 0)
-        total_cost = float(result[2] or 0.0)
+    # FIX: Safely handle the case where a user has no usage data
+    if result and result[0] is not None:
+        total_tokens, total_requests, total_cost = result
     else:
         total_tokens, total_requests, total_cost = 0, 0, 0.0
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f"<div class='stat-card'><div class='stat-value'>{total_tokens:,}</div><div class='stat-label'>Total Tokens</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='stat-card'><div class='stat-value'>{int(total_tokens):,}</div><div class='stat-label'>Total Tokens</div></div>", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"<div class='stat-card'><div class='stat-value'>{total_requests}</div><div class='stat-label'>API Requests</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='stat-card'><div class='stat-value'>{int(total_requests)}</div><div class='stat-label'>API Requests</div></div>", unsafe_allow_html=True)
     with col3:
         st.markdown(f"<div class='stat-card'><div class='stat-value'>${total_cost:.2f}</div><div class='stat-label'>Estimated Cost</div></div>", unsafe_allow_html=True)
 
@@ -845,20 +535,87 @@ def main():
     init_session_state()
     conn = init_db()
 
+    # --- Compact, responsive CSS for Streamlit Cloud ---
     st.markdown("""
     <style>
-    .stApp { background-color: #f0f2f6; }
-    .main-header { font-size: 2.4rem; font-weight:700; background: -webkit-linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent;}
-    .stat-card { background:white; border-radius:8px; padding:1rem; box-shadow:0 2px 6px rgba(0,0,0,0.05); text-align:center;}
-    .stat-value { font-size:1.6rem; font-weight:700;}
+    /* Hide Streamlit default header/footer for a cleaner app look */
+    header[data-testid="stHeader"] { height: 0px; }
+    footer { visibility: hidden; }
+
+    /* App container width and padding */
+    .main .block-container { 
+      padding-top: 0.75rem; 
+      padding-bottom: 0.75rem; 
+      max-width: 1200px; 
+    }
+
+    /* Sidebar width on desktop */
+    section[data-testid="stSidebar"] { width: 300px !important; }
+
+    /* Gradient title */
+    .main-header { 
+      font-size: 1.8rem; 
+      font-weight: 700; 
+      margin: .25rem 0 .35rem 0;
+      background: -webkit-linear-gradient(135deg, #667eea, #764ba2); 
+      -webkit-background-clip: text; 
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Sticky topbar */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: #0f172a;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: .6rem .75rem;
+      margin-bottom: .6rem;
+    }
+
+    /* Chat message bubble styles */
+    .chat-bubble {
+      padding: .6rem .75rem; 
+      border-radius: 10px; 
+      border: 1px solid rgba(0,0,0,0.05);
+    }
+    .chat-bubble.assistant { background: #f8fafc; }
+    .chat-bubble.user { background: #eef2ff; }
+    .chat-bubble.tool { background: #fefce8; }
+
+    /* Tool output expander style */
+    .tool-expander > div[role="button"] {
+      background: #fff7ed; border: 1px solid #fed7aa;
+    }
+
+    /* Stat cards */
+    .stat-card { 
+      background:white; border-radius:8px; padding:.8rem; 
+      box-shadow:0 2px 6px rgba(0,0,0,0.05); text-align:center; 
+    }
+    .stat-value { font-size:1.2rem; font-weight:700; }
     .stat-label { color:#718096; }
+
+    /* Mobile tweaks */
+    @media (max-width: 640px) {
+      section[data-testid="stSidebar"] { width: 260px !important; }
+      .main .block-container { padding-left:.5rem; padding-right:.5rem; }
+    }
     </style>
     """, unsafe_allow_html=True)
 
+    # Lottie animations are commented out to prevent network-related warnings
+    # lottie_ai = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_uz5cqu1b.json")
+    # lottie_robot = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_sk5h1kfn.json")
+
+    # --- AUTH SCREEN ---
     if not st.session_state.get("authenticated", False):
         st.markdown('<div style="display:flex;justify-content:center;align-items:center;height:80vh">', unsafe_allow_html=True)
         with st.container():
             st.markdown('<h1 style="text-align:center;">🤖 Quant AI — Sign in</h1>', unsafe_allow_html=True)
+            # if lottie_ai:
+            #     st_lottie(lottie_ai, height=180)
             with st.form("auth_form"):
                 mode = st.radio("Mode", ["Login", "Register"])
                 username = st.text_input("Username", key="auth_username")
@@ -891,44 +648,104 @@ def main():
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    # --- UI LAYOUT FOR AUTHENTICATED USERS ---
+    # --- SIDEBAR (Account, Conversations, Usage, API) ---
     with st.sidebar:
-        st.button("🚪 Logout", on_click=logout)
-        st.markdown(f"**Signed in as:** {st.session_state.get('username')}")
+        st.subheader("Account")
+        st.markdown(f"Signed in as: **{st.session_state.get('username','Guest')}**")
+        st.button("🚪 Logout", on_click=logout, use_container_width=True)
         st.markdown("---")
 
-        st.markdown("### Conversation")
-        if st.button("🆕 Start New Chat"):
+        # Conversations
+        st.subheader("Conversations")
+        if st.button("🆕 Start New Chat", use_container_width=True):
             new_chat()
             st.rerun()
-        if st.button("💾 Save Conversation"):
+        if st.button("💾 Save Conversation", use_container_width=True):
             save_conversation()
 
-        st.markdown("---")
-
-        conv_rows = get_user_conversations(conn, st.session_state["user_id"])
+        conv_rows = get_user_conversations(conn, st.session_state.get("user_id") or -1)
         conv_names = [r[0] for r in conv_rows]
         if conv_names:
-            sel = st.selectbox("Load a conversation", options=[""] + conv_names, index=0)
-            if sel:
+            sel = st.radio("Load", options=conv_names, label_visibility="collapsed")
+            if sel and sel != st.session_state.get("conversation_name"):
                 load_conversation(sel)
                 st.rerun()
+        else:
+            st.caption("No saved conversations yet.")
 
         st.markdown("---")
-        st.markdown("### Usage")
-        display_usage_stats()
 
-    st.title("Quant AI Assistant")
-    st.caption(f"Welcome, {st.session_state.username} • v7.0.0")
+        # Compact usage metrics
+        st.subheader("Usage")
+        try:
+            conn2 = init_db()
+            c2 = conn2.cursor()
+            c2.execute("SELECT SUM(tokens), SUM(requests), SUM(cost) FROM usage WHERE user_id = ?", (st.session_state.get("user_id"),))
+            result = c2.fetchone()
+            total_tokens = int(result[0] or 0)
+            total_requests = int(result[1] or 0)
+            total_cost = float(result[2] or 0.0)
+        except Exception:
+            total_tokens, total_requests, total_cost = 0, 0, 0.0
 
-    tab_chat, tab_tools, tab_analytics, tab_settings = st.tabs(["Chat", "Workflows", "Analytics", "Settings"])
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Tokens", f"{total_tokens:,}")
+        m2.metric("Reqs", f"{total_requests}")
+        m3.metric("Cost", f"${total_cost:.2f}")
+
+        st.markdown("---")
+
+        # API settings moved here from Settings tab
+        st.subheader("OpenAI API")
+        api_text = st.text_input("API Key", type="password", value=st.session_state.get("api_key", ""))
+        if api_text and api_text != st.session_state.get("api_key", ""):
+            st.session_state.api_key = api_text
+            client = create_openai_client(api_text)
+            if client:
+                st.success("API key configured.")
+            else:
+                st.error("Failed to initialize client with the provided API key.")
+
+    # --- STICKY TOPBAR (Title, Model, Temp, Primary Actions) ---
+    with st.container():
+        st.markdown('<div class="topbar">', unsafe_allow_html=True)
+        c1, c2, c3, c4 = st.columns([4, 2, 2, 2])
+        with c1:
+            st.markdown("<div class='main-header'>Quant AI Assistant</div>", unsafe_allow_html=True)
+            st.caption(f"Welcome, {st.session_state.username or 'Guest'} • {st.session_state.conversation_name}")
+        with c2:
+            model_options = ["gpt-5", "gpt-5-pro", "gpt-5-mini", "gpt-4o", "gpt-4-turbo-preview"]
+            current_model = st.session_state.get("model", "gpt-4o")
+            st.selectbox(
+                "Model",
+                model_options,
+                index=model_options.index(current_model) if current_model in model_options else model_options.index("gpt-4o"),
+                key="model",
+                label_visibility="collapsed",
+            )
+        with c3:
+            st.slider("Temperature", 0.0, 1.0, st.session_state.get("temperature", 0.7), key="temperature", label_visibility="collapsed")
+        with c4:
+            colA, colB = st.columns(2)
+            with colA:
+                if st.button("🆕 New", use_container_width=True):
+                    new_chat()
+                    st.rerun()
+            with colB:
+                st.button("💾 Save", on_click=save_conversation, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # We now use the sticky topbar title; keep main area clean.
+    st.title("")
+
+    # --- MAIN CONTENT TABS (Chat, Workflows, Analytics) ---
+    tab_chat, tab_tools, tab_analytics = st.tabs(["Chat", "Workflows", "Analytics"])
 
     with tab_chat:
         if not st.session_state.get("api_key"):
-            st.warning("Please enter your OpenAI API key in Settings to interact with the model.")
+            st.warning("Please enter your OpenAI API key in the sidebar to interact with the model.")
         else:
-            current_temp = st.session_state.get('temperature', MODEL_TEMPERATURES.get(st.session_state.get('model'), MODEL_TEMPERATURES['default']))
-            st.markdown(f"**Conversation:** {st.session_state.conversation_name} • Model: {st.session_state.model} • Temp: {current_temp}")
+            st.markdown(f"**Conversation:** {st.session_state.conversation_name} • Model: {st.session_state.model}")
             render_chat_messages()
             prompt = st.chat_input("Type a message...")
             if prompt:
@@ -945,6 +762,10 @@ def main():
                 st.warning("Provide code to review.")
             else:
                 st.session_state.messages.append({"role": "user", "content": f"Please review this code:\n\n```{code_blob}```"})
+                try:
+                    st.toast("Code sent to chat for review.", icon="🔎")
+                except Exception:
+                    st.success("Code sent to chat for review.")
                 st.rerun()
 
         st.markdown("---")
@@ -959,6 +780,10 @@ def main():
                     df = pd.read_csv(uploaded)
                     csv_text = df.to_csv(index=False)
                     st.session_state.messages.append({"role": "user", "content": f"Analyze the following data:\n\n```csv\n{csv_text}\n```\nQuestion: {question}"})
+                    try:
+                        st.toast("Data sent to chat for analysis.", icon="📊")
+                    except Exception:
+                        st.success("Data sent to chat for analysis.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Could not read CSV: {e}")
@@ -967,13 +792,12 @@ def main():
         st.markdown("### Usage Analytics")
         if st.session_state.get("user_id"):
             try:
-                conn = init_db()
+                conn_analytics = init_db()
                 query = "SELECT date, tokens, requests, cost FROM usage WHERE user_id = ? ORDER BY date ASC"
-                df_usage = pd.read_sql_query(query, conn, params=(st.session_state["user_id"],))
+                df_usage = pd.read_sql_query(query, conn_analytics, params=(st.session_state["user_id"],))
 
                 if not df_usage.empty:
                     df_usage["date"] = pd.to_datetime(df_usage["date"])
-
                     st.plotly_chart(px.line(df_usage, x="date", y="tokens", title="Daily Token Usage"), use_container_width=True)
                     st.plotly_chart(px.line(df_usage, x="date", y="cost", title="Estimated Daily Cost"), use_container_width=True)
                     st.plotly_chart(px.line(df_usage, x="date", y="requests", title="Daily API Requests"), use_container_width=True)
@@ -983,84 +807,6 @@ def main():
                 st.error(f"Failed to load analytics: {e}")
         else:
             st.warning("Please log in to view your analytics.")
-
-    with tab_settings:
-        st.markdown("### OpenAI API Settings")
-        st.markdown("For production, prefer setting OPENAI_API_KEY as an environment variable or use a secrets manager.")
-        api_text = st.text_input("OpenAI API Key", type="password", value=st.session_state.get("api_key", ""))
-        persist_env = st.checkbox("Persist API key to process environment (not recommended)", value=False)
-        if api_text and api_text != st.session_state.get("api_key", ""):
-            st.session_state.api_key = api_text
-            if persist_env:
-                os.environ["OPENAI_API_KEY"] = api_text
-                st.warning("API key written to process environment. This is not secure for shared or production environments.")
-            client = create_openai_client(api_text)
-            if client:
-                st.session_state.client_initialized = True
-                st.success("API key configured. You may now interact with the model.")
-            else:
-                st.session_state.client_initialized = False
-                st.error("Failed to initialize client with the provided API key.")
-
-        # Model selection: only show models available to the API key, intersected with a whitelist
-        if st.session_state.get("api_key"):
-            api_key = st.session_state["api_key"]
-            available_models = list_models_for_api_key(api_key)
-
-            # Prefer intersection with our app whitelist
-            choices = [m for m in DEFAULT_ALLOWED_MODELS if m in available_models]
-
-            # If none of the whitelist models are present, try to pick sensible GPT-like models returned by the API
-            if not choices and available_models:
-                choices = [m for m in available_models if "gpt" in m.lower()]
-
-            # Final fallback to DEFAULT_ALLOWED_MODELS so UI always has something
-            if not choices:
-                st.warning("Could not fetch models for the given API key or no matching models found. Showing default model list.")
-                choices = DEFAULT_ALLOWED_MODELS
-
-            # Choose a reasonable default index (try to keep the previously selected model if still present)
-            try:
-                current = st.session_state.get("model", choices[0])
-                default_index = choices.index(current) if current in choices else 0
-            except Exception:
-                default_index = 0
-
-            model_choice = st.selectbox("Model", choices, index=default_index, key="model")
-
-            # When model changes, update session defaults for temperature and max_tokens (but don't overwrite if user has customized them)
-            selected_model = st.session_state.get("model")
-            last_model = st.session_state.get("_last_model_for_settings")
-            if selected_model != last_model:
-                # only change session temperature/max_tokens if they are still equal to the prior model default
-                # or not set. This prevents clobbering user-chosen overrides.
-                prior_default_temp = MODEL_TEMPERATURES.get(last_model, MODEL_TEMPERATURES.get("default")) if last_model else None
-                prior_default_max = _model_max_tokens(last_model) if last_model else None
-
-                # if user hasn't changed temperature (equal to prior default) or not set, reset to new default
-                if prior_default_temp is None or st.session_state.get("temperature") == prior_default_temp:
-                    st.session_state["temperature"] = _effective_temperature_for_model(selected_model)
-                # same for max_tokens
-                new_model_limit = _model_max_tokens(selected_model)
-                if prior_default_max is None or st.session_state.get("max_tokens") == min(prior_default_max, DEFAULT_MAX_TOKENS):
-                    st.session_state["max_tokens"] = min(new_model_limit, DEFAULT_MAX_TOKENS)
-
-                st.session_state["_last_model_for_settings"] = selected_model
-
-            # expose temperature / max_tokens controls
-            st.markdown("#### Model response controls")
-            # Temperature slider: allow 0.0..2.0 (clamped in response), step 0.01
-            temp_val = st.slider("Temperature", min_value=0.0, max_value=2.0, value=float(st.session_state.get("temperature", MODEL_TEMPERATURES.get(selected_model, MODEL_TEMPERATURES["default"]))), step=0.01)
-            st.session_state["temperature"] = temp_val
-
-            # Max tokens input: cap by the model's limit
-            model_limit = _model_max_tokens(selected_model)
-            # default value is what's in session_state already (validated/protected earlier)
-            max_tokens_val = st.number_input("Max tokens for model response", min_value=1, max_value=model_limit, value=int(st.session_state.get("max_tokens", min(model_limit, DEFAULT_MAX_TOKENS))), step=1)
-            # ensure stored value respects limit
-            st.session_state["max_tokens"] = max(1, min(int(max_tokens_val), model_limit))
-
-            st.write(f"Using model: {st.session_state.get('model')} with temperature: {st.session_state.get('temperature')} and max_tokens: {st.session_state.get('max_tokens')}")
 
 if __name__ == "__main__":
     main()
