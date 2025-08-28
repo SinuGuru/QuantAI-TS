@@ -579,7 +579,7 @@ def render_topbar(title: str):
             st.markdown(f"<div class='main-header'>{title}</div>", unsafe_allow_html=True)
             st.caption(f"Welcome, {st.session_state.username or 'Guest'} • {st.session_state.conversation_name}")
         with c2:
-            model_options = ["gpt-5", "gpt-5-pro", "gpt-5-mini", "gpt-4o", "gpt-4-turbo-preview"]
+            model_options = ["gpt-5", "gpt-5-mini", "gpt-4o", "gpt-4-turbo-preview"]
             current_model = st.session_state.get("model", "gpt-4o")
             st.selectbox(
                 "Model",
