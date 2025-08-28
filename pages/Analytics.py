@@ -26,7 +26,7 @@ def main():
     try:
         df_usage = load_usage_dataframe(user_id)
         if not df_usage.empty:
-            df_usage["date"] = pd.to_datetime(df_usage["date"])
+            df_usage["date"] = px.to_datetime(df_usage["date"])
             st.plotly_chart(px.line(df_usage, x="date", y="tokens", title="Daily Token Usage"), use_container_width=True)
             st.plotly_chart(px.line(df_usage, x="date", y="cost", title="Estimated Daily Cost"), use_container_width=True)
             st.plotly_chart(px.line(df_usage, x="date", y="requests", title="Daily API Requests"), use_container_width=True)
