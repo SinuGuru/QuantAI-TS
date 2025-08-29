@@ -901,26 +901,3 @@ def load_usage_dataframe(user_id: Optional[int]) -> pd.DataFrame:
     if "cost" in df.columns:
         df["cost"] = pd.to_numeric(df["cost"], errors="coerce").fillna(0.0).astype(float)
     return df
-
-st.markdown(
-    """
-    <style>
-        .block-container {
-            padding-top: 2rem !important;
-        }
-        header[data-testid="stHeader"] {
-            height: 0px;
-            min-height: 0px;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Example: Center the form
-col1, col2, col3 = st.columns([1,2,1])
-with col2:
-    # Your sign-in form here
-    st.text_input("Username")
-    st.text_input("Password", type="password")
-    st.button("Sign In")
