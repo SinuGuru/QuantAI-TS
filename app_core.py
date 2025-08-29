@@ -790,6 +790,27 @@ def render_sidebar(conn: sqlite3.Connection) -> None:
             else:
                 st.error("Failed to initialize client with the provided API key.")
 
+        st.markdown("## ⚙️ Settings")
+        st.markdown("---")
+
+        # Token management section
+        st.markdown("### 🔑 Token Management")
+        token = st.text_input(
+            "API Token",
+            type="password",
+            value=st.session_state.get("api_token", ""),
+            help="Enter your API token here."
+        )
+        if st.button("Update Token", key="update_token_sidebar"):
+            st.session_state["api_token"] = token
+            st.success("Token updated!")
+
+        st.markdown("---")
+        st.markdown("### 📄 Navigation")
+        st.info("Use the tabs in the main area to switch between workflows.")
+
+        # Add any additional sidebar controls here as needed
+
 
 def render_topbar(title: str) -> None:
     """Render the top bar with title, model selector, temperature, and controls."""
