@@ -12,10 +12,9 @@ def main():
     init_session_state()
     conn = init_db()
     inject_css()
-    auth_gate(conn)
+    auth_gate(conn)  # Handles sign-in
 
-    # Use centralized sidebar
-    render_sidebar(conn)
+    render_sidebar(conn)  # Handles sidebar (no sign-in form)
 
     render_topbar("Workflows")
 
@@ -83,6 +82,11 @@ def main():
                     st.error(f"Could not read CSV: {e}")
 
     st.info("Switch back to the Chat page to continue the conversation.")
+
+def render_sidebar(conn):
+    # Do NOT include any sign-in form here!
+    st.markdown("## ⚙️ Settings")
+    # ...token management and navigation only...
 
 if __name__ == "__main__":
     main()
