@@ -847,7 +847,19 @@ def auth_gate(conn: sqlite3.Connection) -> None:
     """Block main UI until the user is authenticated."""
     if st.session_state.get("authenticated", False):
         return
-    st.markdown('<div style="display:flex;justify-content:center;align-items:center;height:80vh">', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <style>
+            .block-container { padding-top: 1rem !important; }
+            header[data-testid="stHeader"] { height: 0px; min-height: 0px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div style="display:flex;justify-content:center;align-items:flex-start;height:60vh;">',
+        unsafe_allow_html=True,
+    )
     with st.container():
         st.markdown('<h1 style="text-align:center;">🤖 Quant AI — Sign in</h1>', unsafe_allow_html=True)
         with st.form("auth_form"):
