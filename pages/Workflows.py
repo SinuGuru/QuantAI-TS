@@ -32,7 +32,7 @@ def main():
 
     st.markdown('<div class="topbar"><h2>🛠️ Workflows</h2></div>', unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["📝 Code Review", "📊 Data Analysis"])
+    tab1, tab2, tab3 = st.tabs(["📝 Code Review", "📊 Data Analysis", "💬 Chat"])
 
     with tab1:
         st.markdown("### Code Review")
@@ -75,7 +75,27 @@ def main():
                 except Exception as e:
                     st.error(f"Could not read CSV: {e}")
 
-    st.info("Switch back to the Chat page to continue the conversation.")
+    with tab3:
+        st.markdown("### 💬 Chat")
+        if "messages" not in st.session_state:
+            st.session_state["messages"] = [
+                {"role": "assistant", "content": "Hello! I'm your Enterprise AI Assistant for 2025. How can I help you today?"}
+            ]
+
+        for msg in st.session_state["messages"]:
+            if msg["role"] == "user":
+                st.markdown(f"**You:** {msg['content']}")
+            else:
+                st.markdown(f"**AI:** {msg['content']}")
+
+        user_input = st.text_input("Type your message...", key="chat_input")
+        if st.button("Send", key="send_chat"):
+            if user_input.strip():
+                st.session_state["messages"].append({"role": "user", "content": user_input})
+                with st.spinner("AI is thinking..."):
+                    ai_reply = response(st.session_state["messages"], st.session_state.get("model", "gpt-4o"))
+                st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
+                st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
