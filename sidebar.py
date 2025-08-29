@@ -61,6 +61,7 @@ def render_sidebar(conn):
         st.markdown("---")
         st.markdown("### 📄 Navigation")
         st.info("Use the tabs in the main area to switch between workflows.")
+        st.markdown("[Open Workflows page](/?page=Workflows)")
 
     st.markdown(
         """
