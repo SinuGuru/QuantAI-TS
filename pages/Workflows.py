@@ -22,15 +22,15 @@ def main():
         """
         <style>
             section[data-testid="stSidebar"] {
-                min-width: 200px;
-                width: 30vw;
-                max-width: 350px;
+                min-width: 270px !important;
+                width: 320px !important;
+                max-width: 400px !important;
             }
             @media (max-width: 600px) {
                 section[data-testid="stSidebar"] {
-                    min-width: 100px;
-                    width: 80vw;
-                    max-width: 95vw;
+                    min-width: 150px !important;
+                    width: 90vw !important;
+                    max-width: 98vw !important;
                 }
             }
         </style>

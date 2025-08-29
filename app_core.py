@@ -706,9 +706,9 @@ def display_usage_stats_block() -> None:
     """Show a small usage summary block."""
     total_tokens, total_requests, total_cost = get_usage_totals(st.session_state.get("user_id"))
     col1, col2, col3 = st.columns(3)
-    col1.metric("Tokens", f"{total_tokens:,}")
-    col2.metric("Reqs", f"{total_requests}")
-    col3.metric("Cost", f"${total_cost:.2f}")
+    col1.metric("Tok", f"{total_tokens:,}")
+    col2.metric("Req", f"{total_requests}")
+    col3.metric("$", f"{total_cost:.2f}")
 
 
 def save_conversation() -> None:
