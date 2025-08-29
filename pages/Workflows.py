@@ -23,9 +23,16 @@ def main():
         """
         <style>
             section[data-testid="stSidebar"] {
-                min-width: 350px;
-                width: 350px;
-                max-width: 400px;
+                min-width: 200px;
+                width: 30vw;
+                max-width: 350px;
+            }
+            @media (max-width: 600px) {
+                section[data-testid="stSidebar"] {
+                    min-width: 100px;
+                    width: 80vw;
+                    max-width: 95vw;
+                }
             }
         </style>
         """,
