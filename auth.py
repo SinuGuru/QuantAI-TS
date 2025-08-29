@@ -1,10 +1,11 @@
 import os
 import binascii
 import hashlib
-import streamlit as st
-import time
 import re
-from db import create_user, get_user_by_username
+import time
+import streamlit as st
+from typing import Optional, Dict, Any
+from db import init_db, insert_user, get_user_by_username
 
 def hash_password(password: str) -> str:
     try:
@@ -27,17 +28,17 @@ def verify_password(stored: str, provided: str) -> bool:
             salt = binascii.unhexlify(salt_hex)
             dk = hashlib.pbkdf2_hmac("sha256", provided.encode("utf-8"), salt, 200_000)
             return binascii.hexlify(dk).decode() == hash_hex
-        parts = stored.split("$")
-        if len(parts) == 2:
-            salt_hex, hash_hex = parts
-            salt = binascii.unhexlify(salt_hex)
-            dk = hashlib.pbkdf2_hmac("sha256", provided.encode("utf-8"), salt, 200_000)
-            return binascii.hexlify(dk).decode() == hash_hex
         return False
     except Exception:
         return False
 
-def authenticate_user(conn, username: str, password: str):
+def create_user(conn, username: str, password: str, role: str = "user") -> Dict[str, Any]:
+    if not username or not password:
+        raise ValueError("Username and password required")
+    pw_hash = hash_password(password)
+    return insert_user(conn, username, pw_hash, role)
+
+def authenticate_user(conn, username: str, password: str) -> Optional[Dict[str, Any]]:
     user = get_user_by_username(conn, username)
     if not user:
         return None
@@ -46,7 +47,6 @@ def authenticate_user(conn, username: str, password: str):
     return None
 
 def password_strength(password: str) -> str:
-    import re
     if len(password) < 8:
         return "Weak"
     if not re.search(r"[A-Z]", password) or not re.search(r"[0-9]", password):
@@ -56,22 +56,20 @@ def password_strength(password: str) -> str:
     return "Medium"
 
 def auth_gate(conn):
+    """Block main UI until the user is authenticated."""
     if st.session_state.get("authenticated", False):
         return
     st.markdown(
         """
         <style>
-            .block-container { padding-top: 0.2rem !important; }
+            .block-container { padding-top: 0.5rem !important; }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown(
-        '<div style="display:flex;justify-content:center;align-items:flex-start;">',
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div style="display:flex;justify-content:center;align-items:flex-start;">', unsafe_allow_html=True)
     with st.container():
-        st.markdown('<h1 style="text-align:center;">🤖 Quant AI — Sign in</h1>', unsafe_allow_html=True)
+        st.markdown('<h2 style="text-align:center;">🤖 Quant AI — Sign in</h2>', unsafe_allow_html=True)
         with st.form("auth_form"):
             mode = st.radio("Mode", ["Login", "Register"])
             username = st.text_input("Username", key="auth_username")
@@ -85,7 +83,7 @@ def auth_gate(conn):
                 else:
                     if mode == "Register":
                         try:
-                            _user = create_user(conn, username, password)
+                            user = create_user(conn, username, password)
                             st.success("Account created. Please login.")
                         except ValueError:
                             st.error("Username already taken.")
@@ -98,9 +96,9 @@ def auth_gate(conn):
                             st.session_state.user_id = user["id"]
                             st.session_state.username = user["username"]
                             st.session_state.user_role = user["role"]
-                            st.success(f"Welcome, {username}!")
-                            time.sleep(0.4)
-                            st.rerun()
+                            st.success(f"Welcome, {user['username']}!")
+                            time.sleep(0.3)
+                            st.experimental_rerun()
                         else:
                             st.error("Invalid username or password")
     st.markdown("</div>", unsafe_allow_html=True)

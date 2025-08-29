@@ -38,18 +38,16 @@ def init_db(db_path: Path = DB_PATH) -> sqlite3.Connection:
     conn.commit()
     return conn
 
-def create_user(conn, username: str, password: str, role: str = "user") -> Dict[str, Any]:
-    from auth import hash_password
-    pw_hash = hash_password(password)
+def insert_user(conn: sqlite3.Connection, username: str, password_hash: str, role: str = "user") -> Dict[str, Any]:
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", (username, pw_hash, role))
+        c.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", (username, password_hash, role))
         conn.commit()
         return {"id": c.lastrowid, "username": username, "role": role}
     except sqlite3.IntegrityError:
         raise ValueError("User exists")
 
-def get_user_by_username(conn, username: str) -> Optional[Dict[str, Any]]:
+def get_user_by_username(conn: sqlite3.Connection, username: str) -> Optional[Dict[str, Any]]:
     c = conn.cursor()
     c.execute("SELECT id, username, password_hash, role FROM users WHERE username = ?", (username,))
     row = c.fetchone()
@@ -57,10 +55,10 @@ def get_user_by_username(conn, username: str) -> Optional[Dict[str, Any]]:
         return None
     return {"id": row[0], "username": row[1], "password_hash": row[2], "role": row[3]}
 
-def save_conversation_db(conn, user_id: int, name: str, messages: List[Dict[str, Any]]) -> None:
+def save_conversation_db(conn: sqlite3.Connection, user_id: int, name: str, messages: List[Dict[str, Any]]) -> None:
     import json
     c = conn.cursor()
-    payload = json.dumps(messages, ensure_ascii=False, indent=2)
+    payload = json.dumps(messages, ensure_ascii=False)
     try:
         c.execute("""
         INSERT INTO conversations (user_id, name, data) VALUES (?, ?, ?)
@@ -68,16 +66,17 @@ def save_conversation_db(conn, user_id: int, name: str, messages: List[Dict[str,
         """, (user_id, name, payload))
         conn.commit()
     except sqlite3.OperationalError:
+        # fallback for SQLite versions without ON CONFLICT ... DO UPDATE support
         c.execute("DELETE FROM conversations WHERE user_id = ? AND name = ?", (user_id, name))
         c.execute("INSERT INTO conversations (user_id, name, data) VALUES (?, ?, ?)", (user_id, name, payload))
         conn.commit()
 
-def get_user_conversations(conn, user_id: int) -> List[Tuple[str, str]]:
+def get_user_conversations(conn: sqlite3.Connection, user_id: int) -> List[Tuple[str, str]]:
     c = conn.cursor()
     c.execute("SELECT name, created_at FROM conversations WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
     return c.fetchall()
 
-def load_conversation_db(conn, user_id: int, name: str) -> Optional[List[Dict[str, Any]]]:
+def load_conversation_db(conn: sqlite3.Connection, user_id: int, name: str) -> Optional[List[Dict[str, Any]]]:
     import json
     c = conn.cursor()
     c.execute("SELECT data FROM conversations WHERE user_id = ? AND name = ? LIMIT 1", (user_id, name))
@@ -86,7 +85,7 @@ def load_conversation_db(conn, user_id: int, name: str) -> Optional[List[Dict[st
         return None
     return json.loads(row[0])
 
-def add_usage(conn, user_id: int, tokens: int = 0, requests: int = 1, cost: float = 0.0) -> None:
+def add_usage(conn: sqlite3.Connection, user_id: int, tokens: int = 0, requests: int = 1, cost: float = 0.0) -> None:
     from datetime import date
     today = date.today().isoformat()
     c = conn.cursor()
@@ -100,6 +99,7 @@ def add_usage(conn, user_id: int, tokens: int = 0, requests: int = 1, cost: floa
           cost = cost + excluded.cost
         """, (user_id, today, tokens, requests, cost))
     except sqlite3.OperationalError:
+        # fallback
         c.execute("SELECT id FROM usage WHERE user_id = ? AND date = ?", (user_id, today))
         if c.fetchone():
             c.execute("UPDATE usage SET tokens = tokens + ?, requests = requests + ?, cost = cost + ? WHERE user_id = ? AND date = ?",

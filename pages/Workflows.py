@@ -4,7 +4,7 @@ import pandas as pd
 from db import init_db
 from auth import auth_gate
 from sidebar import render_sidebar
-from chat import response, new_chat, save_conversation, load_conversation, get_user_conversations
+from chat import response, new_chat
 from utils import inject_css
 
 st.set_page_config(page_title="Workflows • Quant AI", page_icon="🛠️", layout="wide")
@@ -23,14 +23,13 @@ def ensure_session():
 def main():
     inject_css()
 
-    # ensure DB, auth and sidebar are present for this page
     conn = init_db()
+    # auth_gate will stop rendering until user logs in
     auth_gate(conn)
     render_sidebar(conn)
 
     ensure_session()
 
-    # Responsive sidebar width (page-local tweak)
     st.markdown(
         """
         <style>

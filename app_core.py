@@ -31,9 +31,10 @@ def main():
     inject_css()
     init_session_state()
     conn = init_db()
+    # auth_gate will render login form and call st.stop() until user authenticates
     auth_gate(conn)
     render_sidebar(conn)
-    # Main content is handled in Streamlit pages
+    # main app pages are in pages/ directory and will be discovered by Streamlit
 
 if __name__ == "__main__":
     main()
