@@ -851,12 +851,11 @@ def auth_gate(conn: sqlite3.Connection) -> None:
         """
         <style>
             .block-container { padding-top: 0.2rem !important; }
-            header[data-testid="stHeader"] { height: 0px; min-height: 0px; }
+            /* header[data-testid="stHeader"] { height: 0px; min-height: 0px; } */
         </style>
         """,
         unsafe_allow_html=True,
     )
-    # Remove height or set a small one, align to top
     st.markdown(
         '<div style="display:flex;justify-content:center;align-items:flex-start;">',
         unsafe_allow_html=True,
