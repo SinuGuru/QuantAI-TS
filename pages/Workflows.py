@@ -29,9 +29,9 @@ def main():
             except Exception:
                 st.success("Code sent to chat for review.")
             # Optionally trigger a response immediately:
-            # with st.spinner("Analyzing..."):
-            #     _ = response(st.session_state.messages, st.session_state.model)
-            # st.rerun()
+            with st.spinner("Analyzing..."):
+                _ = response(st.session_state.messages, st.session_state.model)
+            st.rerun()
 
     st.markdown("---")
     st.markdown("### Data Analysis")
@@ -53,9 +53,9 @@ def main():
                 except Exception:
                     st.success("Data sent to chat for analysis.")
                 # Optionally trigger response immediately:
-                # with st.spinner("Analyzing..."):
-                #     _ = response(st.session_state.messages, st.session_state.model)
-                # st.rerun()
+                with st.spinner("Analyzing..."):
+                    _ = response(st.session_state.messages, st.session_state.model)
+                st.rerun()
             except Exception as e:
                 st.error(f"Could not read CSV: {e}")
 
