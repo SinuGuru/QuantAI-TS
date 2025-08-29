@@ -1,5 +1,5 @@
 import streamlit as st
-from db import save_conversation_db, get_user_conversations, load_conversation_db, init_db
+from db import save_conversation_db, get_user_conversations as db_get_user_conversations, load_conversation_db, init_db
 from datetime import datetime
 import json
 
@@ -35,4 +35,4 @@ def load_conversation(name: str):
         st.error(f"Failed to load conversation: {e}")
 
 def get_user_conversations(conn, user_id):
-    return get_user_conversations(conn, user_id)
+    return db_get_user_conversations(conn, user_id)
