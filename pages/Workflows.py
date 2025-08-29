@@ -1,23 +1,15 @@
 # pages/Workflows.py
-import pandas as pd
 import streamlit as st
-from app_core import (
-    init_session_state, init_db, inject_css, auth_gate,
-    render_sidebar, render_topbar, response
-)
+import pandas as pd
+from chat import response
+from utils import inject_css
 
 st.set_page_config(page_title="Workflows • Quant AI", page_icon="🛠️", layout="wide")
 
 def main():
-    init_session_state()
-    conn = init_db()
     inject_css()
-    auth_gate(conn)  # Handles sign-in
 
-    render_sidebar(conn)  # Handles sidebar (no sign-in form)
-
-    render_topbar("Workflows")
-
+    # Responsive sidebar width
     st.markdown(
         """
         <style>
@@ -37,6 +29,8 @@ def main():
         """,
         unsafe_allow_html=True,
     )
+
+    st.markdown('<div class="topbar"><h2>🛠️ Workflows</h2></div>', unsafe_allow_html=True)
 
     tab1, tab2 = st.tabs(["📝 Code Review", "📊 Data Analysis"])
 
@@ -82,11 +76,6 @@ def main():
                     st.error(f"Could not read CSV: {e}")
 
     st.info("Switch back to the Chat page to continue the conversation.")
-
-def render_sidebar(conn):
-    # Do NOT include any sign-in form here!
-    st.markdown("## ⚙️ Settings")
-    # ...token management and navigation only...
 
 if __name__ == "__main__":
     main()
