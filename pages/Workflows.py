@@ -17,6 +17,20 @@ def main():
     render_sidebar(conn)
     render_topbar("Workflows")
 
+    st.markdown(
+        """
+        <style>
+            /* Increase sidebar width */
+            section[data-testid="stSidebar"] {
+                min-width: 350px;
+                width: 350px;
+                max-width: 400px;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.markdown("### Code Review")
     code_blob = st.text_area("Paste code to review", height=200)
     if st.button("Review Code"):
