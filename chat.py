@@ -1,5 +1,6 @@
 import streamlit as st
-from db import save_conversation_db, get_user_conversations as db_get_user_conversations, load_conversation_db, init_db
+from db import save_conversation_db, load_conversation_db, init_db
+from db import get_user_conversations as db_get_user_conversations
 from datetime import datetime
 import json
 
