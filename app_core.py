@@ -33,7 +33,7 @@ def main():
     conn = init_db()
     auth_gate(conn)
     render_sidebar(conn)
-    # Main content is handled in Streamlit pages (pages/Workflows.py, etc.)
+    # Main content is handled in Streamlit pages
 
 if __name__ == "__main__":
     main()

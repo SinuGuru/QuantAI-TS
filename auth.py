@@ -46,6 +46,7 @@ def authenticate_user(conn, username: str, password: str):
     return None
 
 def password_strength(password: str) -> str:
+    import re
     if len(password) < 8:
         return "Weak"
     if not re.search(r"[A-Z]", password) or not re.search(r"[0-9]", password):

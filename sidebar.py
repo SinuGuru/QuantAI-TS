@@ -61,3 +61,23 @@ def render_sidebar(conn):
         st.markdown("---")
         st.markdown("### 📄 Navigation")
         st.info("Use the tabs in the main area to switch between workflows.")
+
+    st.markdown(
+        """
+        <style>
+            section[data-testid="stSidebar"] {
+                min-width: 270px !important;
+                width: 320px !important;
+                max-width: 400px !important;
+            }
+            @media (max-width: 600px) {
+                section[data-testid="stSidebar"] {
+                    min-width: 150px !important;
+                    width: 90vw !important;
+                    max-width: 98vw !important;
+                }
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
