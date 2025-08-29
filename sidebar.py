@@ -1,13 +1,14 @@
 import streamlit as st
 from db import init_db, get_user_conversations as db_get_user_conversations
 from chat import new_chat, save_conversation, load_conversation
+from utils import safe_rerun
 
 def logout():
     keys_to_clear = ["authenticated", "user_id", "username", "user_role", "messages", "conversation_name", "client_initialized"]
     for k in keys_to_clear:
         if k in st.session_state:
             del st.session_state[k]
-    st.experimental_rerun()
+    safe_rerun()
 
 def render_sidebar(conn):
     with st.sidebar:
@@ -20,7 +21,7 @@ def render_sidebar(conn):
         st.subheader("Conversations")
         if st.button("🆕 Start New Chat", use_container_width=True):
             new_chat()
-            st.experimental_rerun()
+            safe_rerun()
         if st.button("💾 Save Conversation", use_container_width=True):
             save_conversation()
 
@@ -36,7 +37,7 @@ def render_sidebar(conn):
             sel = st.selectbox("Load conversation", options=conv_names, index=0)
             if sel and sel != st.session_state.get("conversation_name"):
                 load_conversation(sel)
-                st.experimental_rerun()
+                safe_rerun()
         else:
             st.caption("No saved conversations yet.")
         st.markdown("---")

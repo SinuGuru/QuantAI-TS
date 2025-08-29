@@ -6,6 +6,7 @@ import time
 import streamlit as st
 from typing import Optional, Dict, Any
 from db import init_db, insert_user, get_user_by_username
+from utils import safe_rerun
 
 def hash_password(password: str) -> str:
     try:
@@ -98,7 +99,7 @@ def auth_gate(conn):
                             st.session_state.user_role = user["role"]
                             st.success(f"Welcome, {user['username']}!")
                             time.sleep(0.3)
-                            st.experimental_rerun()
+                            safe_rerun()
                         else:
                             st.error("Invalid username or password")
     st.markdown("</div>", unsafe_allow_html=True)

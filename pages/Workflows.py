@@ -5,7 +5,7 @@ from db import init_db
 from auth import auth_gate
 from sidebar import render_sidebar
 from chat import response, new_chat
-from utils import inject_css
+from utils import inject_css, safe_rerun
 
 st.set_page_config(page_title="Workflows • Quant AI", page_icon="🛠️", layout="wide")
 
@@ -66,7 +66,7 @@ def main():
                 st.session_state.messages.append({"role": "user", "content": f"Please review this code:\n\n```{code_blob}```"})
                 with st.spinner("Analyzing..."):
                     _ = response(st.session_state.messages, st.session_state.get("model", "gpt-4o"))
-                st.experimental_rerun()
+                safe_rerun()
 
     # Data Analysis tab
     with tab2:
@@ -86,7 +86,7 @@ def main():
                     })
                     with st.spinner("Analyzing..."):
                         _ = response(st.session_state.messages, st.session_state.get("model", "gpt-4o"))
-                    st.experimental_rerun()
+                    safe_rerun()
                 except Exception as e:
                     st.error(f"Could not read CSV: {e}")
 
@@ -110,11 +110,11 @@ def main():
                     with st.spinner("AI is thinking..."):
                         ai_reply = response(st.session_state["messages"], st.session_state.get("model", "gpt-4o"))
                     st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
-                    st.experimental_rerun()
+                    safe_rerun()
         with col3:
             if st.button("New Chat", key="new_chat_btn"):
                 new_chat()
-                st.experimental_rerun()
+                safe_rerun()
 
     # small footer/navigation hint
     st.info("Use the sidebar to save/load conversations and configure your OpenAI API key.")
