@@ -24,7 +24,8 @@ def sanitize_filename(name: str) -> str:
 def safe_rerun():
     """
     Compatibility wrapper for reloading the app/page.
-    Tries st.experimental_rerun(), falls back to setting a query param or toggling a sentinel and calling st.stop().
+    Tries st.experimental_rerun(), falls back to updating st.query_params
+    (replacement for experimental_set_query_params), or toggling a sentinel and calling st.stop().
     """
     try:
         st.experimental_rerun()
@@ -32,8 +33,10 @@ def safe_rerun():
     except Exception:
         # experimental_rerun may be unavailable in some Streamlit builds
         try:
-            # try to force a client reload via query params
-            st.experimental_set_query_params(_refresh=str(time.time()))
+            # Use the public query_params API to force client reload
+            params = dict(st.query_params) if isinstance(st.query_params, dict) else {}
+            params["_refresh"] = str(time.time())
+            st.query_params = params
             return
         except Exception:
             # last resort: set a sentinel and stop execution so user can manually refresh
